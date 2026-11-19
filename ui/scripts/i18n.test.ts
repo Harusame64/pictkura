@@ -390,6 +390,7 @@ const INFLECTS: Record<string, string[]> = {
     "wizardSelected:0",
   ],
   en: [
+    "calendarUnread:0",
     "printSheetTitle:0",
     "printSkipped:0",
     "itemsCount:0",
@@ -417,6 +418,7 @@ const INFLECTS: Record<string, string[]> = {
     "googleSentLeftOut:0",
   ],
   de: [
+    "calendarUnread:0",
     "printSheetTitle:0",
     "printSkipped:0",
     "itemsCount:0",
@@ -1620,6 +1622,8 @@ test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込�
   for (const [, dict] of Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl")) {
     const d = dict as unknown as Dict;
     assert.ok(d.selectionTotal("1.22 MB").includes("\u20681.22 MB\u2069"), d.selectionTotal("1.22 MB"));
+    // 設定のサムネイルの使用量（win2 の実機: 右から左で「GB 2」と並んだ）
+    assert.ok(d.settingsThumbCapUsage("1.22 MB", 3).includes("\u20681.22 MB\u2069"), d.settingsThumbCapUsage("1.22 MB", 3));
   }
 });
 

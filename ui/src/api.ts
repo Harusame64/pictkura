@@ -181,7 +181,11 @@ export interface AppConfig {
     slideshow_transition?: ViewerTransition;
   };
   /** 性能（2026-11-15 に画面に出した。古い版の Rust は `hardware_acceleration` を返さない） */
-  performance?: { hardware_acceleration?: boolean };
+  performance?: {
+    hardware_acceleration?: boolean;
+    auto_thumbnails?: boolean;
+    thumb_cache_mb?: number;
+  };
   /** 新しい版の確認（0.2）。これも配ったあとに足した節なので**欠けうる** */
   update?: { check_on_start: boolean; last_check_ms: number };
   /** 一覧の描き方（dev #32）。配ったあとに足した節なので**欠けうる**（既定は重ねる） */
@@ -387,6 +391,14 @@ export const listDay = (
   query: string,
   filter: MediaFilter,
 ) => invoke<MediaItem[]>("list_day", { dayKey, query, filter });
+/** 日ごとのメディアをまとめて（`list_days`）。読めなかった日は `items` が null で、`error` に理由 */
+export interface DayItems {
+  day_key: number;
+  items: MediaItem[] | null;
+  error: string | null;
+}
+export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) =>
+  invoke<DayItems[]>("list_days", { dayKeys, query, filter });
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */
@@ -502,7 +514,13 @@ export const getIndexProgress = () =>
   invoke<IndexProgress>("get_index_progress");
 
 /** 裏で走っている仕事の様子（pictkura-dev #64）。ヘッダーの小さな「読み込み中」が問い合わせる */
-export type BackgroundStatus = { scanning: boolean; thumbs_pending: number };
+/** 設定「サムネイルを自動生成」の様子（Rust の `AutoThumbsStatus`）。古い Rust は返さない */
+export type AutoThumbsStatus = { working: boolean; paused: boolean; left: number; at_cap: boolean };
+export type BackgroundStatus = {
+  scanning: boolean;
+  thumbs_pending: number;
+  auto_thumbs?: AutoThumbsStatus;
+};
 export const backgroundStatus = () => invoke<BackgroundStatus>("background_status");
 export const listMemories = () => invoke<Memory[]>("list_memories");
 export const getStats = () => invoke<LibraryStats>("get_stats");
@@ -726,8 +744,11 @@ export const importFromFolder = (source: string) =>
   invoke<ImportStats>("import_from_folder", { source });
 export const addLibraryRoot = (path: string) =>
   invoke<SyncStats>("add_library_root", { path });
-export const setVisiblePriority = (ids: number[]) =>
-  invoke<void>("set_visible_priority", { ids });
+/** `days` はそれぞれの写真を並べていた日（`ids` と同じ並び。null は見ない）。日が変わった写真は Rust が頼まない */
+export const setVisiblePriority = (ids: number[], days: (number | null)[]) =>
+  invoke<void>("set_visible_priority", { ids, days });
+/** 絵が出る前に画面から去ったタイルの写真を、サムネイルを作る優先の列から降ろす（`gridThumbs.ts` の `BlankWaiters.leave`） */
+export const demoteThumbnails = (ids: number[]) => invoke<void>("demote_thumbnails", { ids });
 
 /** 取り込み元フォルダを1階層だけ読む（DBには載せない） */
 export const listSourceDir = (path: string) =>
@@ -898,6 +919,18 @@ export const setAutoAdvance = (enabled: boolean) =>
 /** 画面の描き出しに GPU の合成を使うか（Windows だけ効く）。次の起動から効く */
 export const setHardwareAcceleration = (enabled: boolean) =>
   invoke<void>("set_hardware_acceleration", { enabled });
+/** 設定「サムネイルを自動生成」 */
+export const setAutoThumbnails = (enabled: boolean) =>
+  invoke<void>("set_auto_thumbnails", { enabled });
+/** 自動生成の一時停止・再開（設定には書かない。次の起動では再開する） */
+export const setAutoThumbnailsPaused = (paused: boolean) =>
+  invoke<void>("set_auto_thumbnails_paused", { paused });
+/** サムネイルの置き場の上限（MB。0 = 無制限） */
+export const setThumbCacheMb = (mb: number) => invoke<void>("set_thumb_cache_mb", { mb });
+export type ThumbCacheInfo = { count: number; bytes: number };
+export const thumbCacheInfo = () => invoke<ThumbCacheInfo>("thumb_cache_info");
+/** 「サムネイルを作り直す」。外した行の数を返す */
+export const rebuildThumbnails = () => invoke<number>("rebuild_thumbnails");
 
 /** ビューアでの RAW+JPEG の組の歩き方を変える（設定の3択と、ビューアの切り替えボタン） */
 export const setPairView = (view: "jpeg" | "raw" | "both") =>

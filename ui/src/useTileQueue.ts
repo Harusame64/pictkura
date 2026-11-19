@@ -14,7 +14,23 @@ import { TileQueue, TILE_READS } from "./tileQueue.ts";
  * 見えているかどうかは見張りに訊かず、選ぶときに位置を測る——見張りを2つにすると、
  * 知らせの届く順で、見えているタイルより先読みのタイルが先に選ばれうる
  */
-export class TileLoader {
+/** タイルを列に載せる口（一覧の `GridThumb.tsx` が使う。試験が差し替える） */
+export interface TileAttach {
+  attach(key: string, el: Element, ready: (img: HTMLImageElement) => void, src?: string): () => void;
+}
+
+export interface TileLoaderOptions {
+  /**
+   * 1枚の読みが枠を塞いでよい上限（ms）。過ぎたら枠を空け、読み終わったら絵は渡す。取り込み画面は持たない
+   * （遅い媒体で読みが積み上がる）。一覧は持つ——サムネイルがまだ無い写真と、働き手が作らない写真（SVG・失敗が
+   * 上限に達した写真）は原本を読むので、NAS や USB の遅い読み4枚で一覧の全部が止まりうる（/code-review）
+   */
+  slotTimeoutMs?: number;
+  /** 箱の上端を覆う帯の選択子（その裏のタイルは見えていない扱い）。既定は取り込み画面の帯、null で無し */
+  coveredBy?: string | null;
+}
+
+export class TileLoader implements TileAttach {
   private readonly queue: TileQueue;
   /** 画面に在るタイル。値は読み終わった絵を受け取る関数 */
   private readonly ready = new Map<string, (img: HTMLImageElement) => void>();
@@ -24,12 +40,26 @@ export class TileLoader {
   private root: Element | null = null;
   private observer: IntersectionObserver | null = null;
 
+  private readonly opts: TileLoaderOptions;
+  /** 読み始めて、まだ終わっていない絵（時間切れで枠を空けたものも含む）と、その終わりで受け取る鍵 */
+  private readonly reading = new Map<string, Set<string>>();
+  /** 鍵ごとの絵の URL（`attach` の `src`） */
+  private readonly srcs = new Map<string, string>();
+  private readonly limit: number;
+  /** 時間切れだが、早めに空けた読みが枠の数に達していたので枠を空けていない鍵 */
+  private readonly overdue = new Set<string>();
+  /** 時間切れで早めに枠を空け、まだ読み途中の鍵（枠の数まで） */
+  private readonly early = new Set<string>();
+
   /** `makeImage` は試験が差し替える口 */
   constructor(
     limit = TILE_READS,
     makeImage: () => HTMLImageElement = () => new Image(),
+    opts: TileLoaderOptions = {},
   ) {
     this.makeImage = makeImage;
+    this.opts = opts;
+    this.limit = limit;
     this.queue = new TileQueue(limit, {
       start: (key) => this.load(key),
       measure: () => this.measure(),
@@ -60,23 +90,33 @@ export class TileLoader {
     };
   }
 
-  /** タイルを載せる。鍵は絵の URL（タイルごとに違う） */
+  /**
+   * タイルを載せる。鍵はタイルごとに違うこと。`src` を渡さなければ鍵が絵の URL（取り込み画面）。
+   * 一覧は同じ写真のタイルが同時に2枚ありうるので、タイルごとの鍵と絵の URL を分けて渡す
+   */
   attach(
     key: string,
     el: Element,
     ready: (img: HTMLImageElement) => void,
+    src: string = key,
   ): () => void {
     this.keys.set(el, key);
     this.elements.set(key, el);
     this.ready.set(key, ready);
-    // 読み途中なら候補には入らず、読み終わったときに `ready` で絵を受け取る
-    this.queue.add(key);
+    this.srcs.set(key, src);
+    // 同じ絵を読み途中（時間切れで枠を空けた読みも含む）なら並べず、その読みの終わりで受け取る
+    // （並べると同じ大きなファイルをもう一度読む。/code-review）
+    const waiting = this.reading.get(src);
+    if (waiting) waiting.add(key);
+    else this.queue.add(key);
     this.observer?.observe(el);
     return () => {
       this.observer?.unobserve(el);
       this.keys.delete(el);
       this.elements.delete(key);
       this.ready.delete(key);
+      this.srcs.delete(key);
+      this.reading.get(src)?.delete(key);
       this.queue.remove(key);
     };
   }
@@ -87,19 +127,61 @@ export class TileLoader {
   }
 
   private load(key: string): void {
+    const src = this.srcs.get(key) ?? key;
+    // 同じ絵がもう読み途中なら、その読みの終わりで受け取る（同じ選びで2枚のタイルが並んで始まったとき）
+    const already = this.reading.get(src);
+    if (already) {
+      already.add(key);
+      this.queue.done(key);
+      return;
+    }
+    const waiters = new Set<string>([key]);
+    this.reading.set(src, waiters);
     const img = this.makeImage();
     img.decoding = "async";
     img.draggable = false;
     img.alt = "";
+    // 時間切れ: 枠を空けて次へ進む。ただし読み途中（時間切れのものを含む）が上限の2倍に達していたら空けない
+    // ——遅い媒体で読みが積み上がらないように（取り込み画面の実測で、並ぶほど1本あたりが遅くなった。dev #73）
+    const timer =
+      this.opts.slotTimeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            // 早めに枠を空けた読みは、枠と同じ数まで。超えるなら、ほかの読みが終わったときに空ける
+            // （`releaseOverdue`）。読み途中の総数は、列の枠＋早めに空けた読み＝枠の2倍を超えない
+            if (this.early.size < this.limit) {
+              this.early.add(key);
+              this.queue.done(key);
+            } else this.overdue.add(key);
+          }, this.opts.slotTimeoutMs);
     const finish = () => {
       img.onload = img.onerror = null;
+      this.reading.delete(src);
+      this.overdue.delete(key);
+      this.early.delete(key);
+      if (timer !== undefined) clearTimeout(timer);
+      // 時間切れで先に枠を空けていれば、二度目は何もしない（`TileQueue.done` は読み途中の鍵だけを数える）
       this.queue.done(key);
-      // 渡す先が居なければ捨てる。居れば、その後は絵はタイルの箱が持つ
-      this.ready.get(key)?.(img);
+      // 渡す先が居なければ捨てる。居れば、その後は絵はタイルの箱が持つ。読みの途中に並んだ同じ絵のタイルにも渡す
+      for (const k of waiters) this.ready.get(k)?.(img);
+      this.releaseOverdue();
     };
     img.onload = finish;
     img.onerror = finish;
-    img.src = key;
+    img.src = src;
+  }
+
+  /**
+   * 時間切れなのに空けられなかった枠を、早めに空けた読みが枠の数を割った分だけ空ける（1つずつ数えて空ける——
+   * 読み途中の総数で見ると、代わりの読みが始まる前にまとめて空けてしまい、8本が11本になった。PR の codex）
+   */
+  private releaseOverdue(): void {
+    for (const k of this.overdue) {
+      if (this.early.size >= this.limit) return;
+      this.overdue.delete(k);
+      this.early.add(k);
+      this.queue.done(k);
+    }
   }
 
   /**
@@ -110,7 +192,8 @@ export class TileLoader {
     const root = this.root;
     if (!root) return () => Infinity;
     const box = root.getBoundingClientRect();
-    const bar = root.querySelector(".wizard-toolbar")?.getBoundingClientRect();
+    const cover = this.opts.coveredBy === undefined ? ".wizard-toolbar" : this.opts.coveredBy;
+    const bar = cover === null ? undefined : root.querySelector(cover)?.getBoundingClientRect();
     const top = Math.max(box.top, bar?.bottom ?? box.top);
     return (key) => {
       const el = this.elements.get(key);
@@ -130,8 +213,10 @@ export class TileLoader {
 export function useTileLoader(
   root: RefObject<Element | null>,
   shown: boolean,
+  limit = TILE_READS,
+  opts: TileLoaderOptions = {},
 ): TileLoader {
-  const [loader] = useState(() => new TileLoader());
+  const [loader] = useState(() => new TileLoader(limit, undefined, opts));
   useEffect(() => {
     const el = root.current;
     if (!shown || !el) return;

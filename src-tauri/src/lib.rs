@@ -92,6 +92,14 @@ struct AppState {
     config: Mutex<Config>,
     config_path: PathBuf,
     thumbs: ThumbnailService,
+    /// 設定「サムネイルを自動生成」の入り切り・一時停止・進み具合（[`spawn_auto_thumbs`]）
+    auto_thumbs: AutoThumbs,
+    /// 外で入った写真のまとまり（[`WatchBurst`]）
+    watch_burst: Mutex<WatchBurst>,
+    /// 見張りが行を入れ始めてから列に積み終えるまでの数（[`settle_unread_when_quiet`] が、入れたばかりの行を出さないため）
+    watch_ingesting: std::sync::atomic::AtomicUsize,
+    /// 見張りの束が最後に届いた時刻（ミリ秒）。コピーが続いている間は「一段落」と見なさない（[`settle_unread_when_quiet`]）
+    watch_last_ms: std::sync::atomic::AtomicI64,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -414,6 +422,62 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// 外で**まとまって**入った写真（エクスプローラーでのコピー等）を、ヘッダーの「残り n」に数える（2026-11-18 利用者
+/// 「まとまって入ったときだけ出す」）。少しずつ届く写真（同期クライアントが数秒ごとに1枚）は数えない——届くたびに
+/// 表示が出たり消えたりする。
+///
+/// - **まとまりの始まりは速さで決める**: 直近 [`WATCH_BURST_WINDOW`] に新しい写真が [`WATCH_BURST_SHOWN`] 枚
+///   入ったら。間が空かないだけの細い流れ（同期が5秒ごとに1枚）は、何分続いてもまとまりにしない（PR #350 の
+///   /code-review）。代わりに、1枚に10秒以上かかる大きいファイルの遅いコピーも出ない
+/// - **まとまりの終わりは間で決める**: 何かが変わった束（書き込み途中のファイルの大きさが変わっただけでも）が
+///   [`WATCH_BURST_GAP`] より空いたら終わり。時刻は束が**届いたとき**に取る（束の処理の長さを間に数えない）
+/// - 見張りは 800ms ごとの束で届く。遅い USB からのコピーは1つの束に数枚ずつなので、束をまたいで数える
+const WATCH_BURST_SHOWN: usize = 20;
+const WATCH_BURST_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+const WATCH_BURST_GAP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// 外で入った写真のまとまりの様子（[`WATCH_BURST_SHOWN`]）。見張りの束ごとに [`WatchBurst::on_batch`] を呼ぶ
+#[derive(Default)]
+struct WatchBurst {
+    /// まだ数えに入れていない、直近に入った新しい写真（入った時刻と id）
+    recent: std::collections::VecDeque<(std::time::Instant, i64)>,
+    /// 最後に何かが変わった束が届いた時刻
+    last: Option<std::time::Instant>,
+    /// いまのまとまりは数えに入れている
+    shown: bool,
+}
+
+impl WatchBurst {
+    /// 何かが変わった束が `at` に届き、新しい写真 `added` が入った。数えに入れる id を返す（まだなら空）
+    fn on_batch(&mut self, at: std::time::Instant, added: &[i64]) -> Vec<i64> {
+        if self
+            .last
+            .is_some_and(|last| at.saturating_duration_since(last) > WATCH_BURST_GAP)
+        {
+            // 間が空いた。まとまりは終わり
+            self.shown = false;
+            self.recent.clear();
+        }
+        self.last = Some(at);
+        if self.shown {
+            return added.to_vec();
+        }
+        while self
+            .recent
+            .front()
+            .is_some_and(|(t, _)| at.saturating_duration_since(*t) > WATCH_BURST_WINDOW)
+        {
+            self.recent.pop_front();
+        }
+        self.recent.extend(added.iter().map(|&id| (at, id)));
+        if self.recent.len() >= WATCH_BURST_SHOWN {
+            self.shown = true;
+            return self.recent.drain(..).map(|(_, id)| id).collect();
+        }
+        Vec::new()
+    }
+}
+
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
 ///
@@ -431,7 +495,16 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     use pictkura_core::scanner::{self, ScannedFile};
     use std::time::UNIX_EPOCH;
 
+    // 束が届いた時刻（外で入った写真のまとまりの間はこれで測る。処理の長さを間に数えない）
+    let arrived = std::time::Instant::now();
     let state = app.state::<AppState>();
+    // 行を入れ始めてから列に積み終えるまで「取り込み中」。**DB を握る前に立てる**——「読み込み中」の束の片付けは DB を
+    // 握ってからこれを見るので、入れたばかりで列に積む前の行を出さない（PR #351 の codex）
+    let _ingesting = WatchIngesting::start(&state.watch_ingesting);
+    state.watch_last_ms.store(
+        pictkura_core::db::now_ms(),
+        std::sync::atomic::Ordering::SeqCst,
+    );
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
     // 行が消えたか（Google 用フォルダの突き合わせを回すかどうか）
@@ -499,16 +572,25 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         }
     }
 
+    // この束で**新しく入った**写真の行（ヘッダーの「残り n」に数えるかどうかの材料）
+    let mut added: Vec<i64> = Vec::new();
     {
         let mut db = lock_ok(&state.db);
         // 新規・変更のみをupsertする（同一内容のupsertはサムネイルを無効化してしまう）
-        let upsert_if_changed = |db: &mut Db, f: ScannedFile| -> bool {
-            let same = db
-                .get_meta_by_path(&f.path)
-                .ok()
-                .flatten()
+        let mut upsert_if_changed = |db: &mut Db, f: ScannedFile| -> bool {
+            let known = db.get_meta_by_path(&f.path).ok().flatten();
+            let same = known
+                .as_ref()
                 .is_some_and(|m| m.size == f.size && m.mtime_ms == f.mtime_ms);
-            !same && db.upsert_files(std::slice::from_ref(&f)).is_ok()
+            if same || db.upsert_files(std::slice::from_ref(&f)).is_err() {
+                return false;
+            }
+            if known.is_none() {
+                if let Ok(Some(m)) = db.get_meta_by_path(&f.path) {
+                    added.push(m.id);
+                }
+            }
+            true
         };
 
         // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
@@ -569,8 +651,25 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     }
 
     if changed {
-        // 見張りの束は新しい写真を数えない（外でのファイル変化。ヘッダーには出さない）
         enqueue_missing_thumbs(&state, None);
+        // 外でまとまって入った写真は「残り n」に数える（[`WATCH_BURST_SHOWN`]）。印は列に居る行にしか付かないので、
+        // 上で積んだ後に付ける（読み終えた行に付けても数は増えない）
+        let (shown, started) = {
+            let mut burst = lock_ok(&state.watch_burst);
+            let before = burst.shown;
+            let shown = burst.on_batch(arrived, &added);
+            (shown, !before && burst.shown)
+        };
+        if !shown.is_empty() {
+            // まとまりの始まりだけ1行残す（数えたかどうかは、読み込みが速いと帯に出る前に終わって見えない）
+            if started {
+                applog::note(&format!(
+                    "watch: counting photos copied in from outside ({} so far)",
+                    shown.len()
+                ));
+            }
+            state.thumbs.mark_fresh(&shown);
+        }
         let _ = app.emit("library-updated", ());
     }
     // 行が消えた束のときだけ（追加だけの束で表を見直さない。ゲート2）
@@ -1387,6 +1486,55 @@ fn timeline_summary(
             cover_rev: d.cover_rev,
         })
         .collect())
+}
+
+/// [`list_days`] の1日分。読めなかった日は `items` が無く、`error` に理由
+#[derive(serde::Serialize)]
+struct DayItemsDto {
+    day_key: i64,
+    items: Option<Vec<MediaItemDto>>,
+    error: Option<String>,
+}
+
+/// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
+///
+/// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
+/// 約230回呼んでいた（win2 の実測）。まとめると約40回になる。
+///
+/// - **日ごとに失敗を分ける**: 読めなかった日は中身を `None`、理由を添えて返し、ほかの日は返す
+///   （1日の失敗で全部を落とさない。理由は `errs::from_err` が記録へも書く）
+/// - **メインスレッドで走らせない**: 何十日分をまとめて引く間、窓の操作を止めない（`spawn_blocking`）
+/// - **読み取りの接続は1日ずつ借りて返す**: 同じ接続でサムネイルの配信も読むので、まとめて握らない
+#[tauri::command]
+async fn list_days(
+    app: tauri::AppHandle,
+    day_keys: Vec<i64>,
+    query: String,
+    filter: pictkura_core::MediaFilter,
+) -> Result<Vec<DayItemsDto>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let query = pictkura_core::parse_query(&query, filter);
+        day_keys
+            .iter()
+            .map(
+                |&day_key| match state.read_pool.with(|db| db.search_day(day_key, &query)) {
+                    Ok(v) => DayItemsDto {
+                        day_key,
+                        items: Some(v.into_iter().map(Into::into).collect()),
+                        error: None,
+                    },
+                    Err(e) => DayItemsDto {
+                        day_key,
+                        items: None,
+                        error: Some(errs::from_err(e)),
+                    },
+                },
+            )
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// 指定日（YYYYMMDD整数）のメディアを表示順（新しい順）で返す。
@@ -4267,6 +4415,82 @@ fn set_hardware_acceleration(
     update_config(&state, |c| c.performance.hardware_acceleration = enabled)
 }
 
+/// 設定「サムネイルを自動生成」の入り切り。オンにするとすぐ配り始める（[`spawn_auto_thumbs`]）
+#[tauri::command]
+fn set_auto_thumbnails(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    update_config(&state, |c| c.performance.auto_thumbnails = enabled)?;
+    state
+        .auto_thumbs
+        .enabled
+        .store(enabled, std::sync::atomic::Ordering::SeqCst);
+    // 入れ直したら一時停止は解く（止めたつもりのまま入れて、動かないと思わせない）
+    state
+        .auto_thumbs
+        .paused
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+/// 自動生成の一時停止・再開（上の帯の表示から）。設定には書かない——次の起動では再開する
+#[tauri::command]
+fn set_auto_thumbnails_paused(state: tauri::State<'_, AppState>, paused: bool) {
+    state
+        .auto_thumbs
+        .paused
+        .store(paused, std::sync::atomic::Ordering::SeqCst);
+    if paused {
+        state.thumbs.queue().clear_pregen();
+    }
+    // 表示もすぐ変える（配り手の次の拍まで待つと、押した直後に古い状態へ戻って見える。PR #348 の /code-review）
+    let mut status = lock_ok(&state.auto_thumbs.status);
+    status.paused = paused;
+    status.working = !paused && status.left > 0;
+}
+
+/// サムネイルの置き場の上限（MB。0 = 無制限）。下げたら、次の見回り（1分ごと）で超えた分を消す
+#[tauri::command]
+fn set_thumb_cache_mb(state: tauri::State<'_, AppState>, mb: u64) -> Result<(), String> {
+    update_config(&state, |c| c.performance.thumb_cache_mb = mb)
+}
+
+/// 設定の「いま n 使用中」
+#[derive(serde::Serialize)]
+struct ThumbCacheInfoDto {
+    /// 本番のサムネイルの数と合計の大きさ
+    count: usize,
+    bytes: i64,
+}
+
+#[tauri::command]
+async fn thumb_cache_info(app: tauri::AppHandle) -> Result<ThumbCacheInfoDto, String> {
+    let state = app.state::<AppState>();
+    let (count, bytes) = state
+        .read_pool
+        .with(|db| db.thumb_cache_stats())
+        .map_err(errs::from_err)?;
+    Ok(ThumbCacheInfoDto { count, bytes })
+}
+
+/// 「サムネイルを作り直す」: 全部の行のサムネイルを外し、画面を読み直させる。ファイルは掃除役が順に消す
+/// （`thumb_trash`）。写真そのものには触らない
+#[tauri::command]
+async fn rebuild_thumbnails(app: tauri::AppHandle) -> Result<usize, String> {
+    let state = app.state::<AppState>();
+    state.thumbs.queue().clear_pregen();
+    let n = lock_ok(&state.db)
+        .reset_all_thumbs()
+        .map_err(errs::from_err)?;
+    // 壊れていて諦めた写真も、もう一度試す。配り手はいちばん新しい写真から読み直す
+    state.thumbs.queue().forget_failures();
+    state
+        .auto_thumbs
+        .restart
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    applog::note(&format!("rebuilding thumbnails: cleared {n}"));
+    let _ = app.emit("library-updated", ());
+    Ok(n)
+}
+
 /// ビューアでの RAW+JPEG の組の歩き方を変える（JPEG だけ・RAW だけ・両方）。
 /// ビューアの切り替えボタンもここを書く——次に開いたときも同じ側で見られるように
 #[tauri::command]
@@ -4349,6 +4573,8 @@ struct BackgroundStatusDto {
     scanning: bool,
     /// **まだサムネイルの無い写真**のうち、読み終えていない数（[`ThumbnailService::fresh_pending`]）
     thumbs_pending: usize,
+    /// 設定「サムネイルを自動生成」の様子（[`AutoThumbsStatus`]）
+    auto_thumbs: AutoThumbsStatus,
 }
 
 /// **本体のスレッドで答えない**（async）。画面は動いている間1秒ごとに訊くので、同期のコマンドだと本体の
@@ -4356,12 +4582,14 @@ struct BackgroundStatusDto {
 #[tauri::command]
 async fn background_status(app: tauri::AppHandle) -> BackgroundStatusDto {
     let state = app.state::<AppState>();
+    let auto_thumbs = lock_ok(&state.auto_thumbs.status).clone();
     BackgroundStatusDto {
         scanning: state
             .scans_running
             .load(std::sync::atomic::Ordering::SeqCst)
             > 0,
         thumbs_pending: state.thumbs.fresh_pending(),
+        auto_thumbs,
     }
 }
 
@@ -4860,15 +5088,26 @@ struct ScopeItemDto {
 /// 段階B-3: 高品質サムネイルはこの経路でのみ生成される（全件事前生成の廃止）。
 /// LRU削除済み（state=0へ戻ったもの）もここで再生成される。
 #[tauri::command]
-fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>, days: Vec<Option<i64>>) {
+    // `days` は一覧がそれぞれの写真を並べていた日（`ids` と同じ並び。帯の写真は None＝見ない）。日が変わった
+    // 写真は、頼んだ後（呼び出しは 150ms まとめてから来る）に撮影日が読まれて画面から去ったので頼まない。
+    // 新しいライブラリでは、撮影日の分からない写真が今日の日付で先頭に固まり、去った写真の本番をこの古い頼みで
+    // 作っていた（win2: 3万枚で約9千枚）。いまは未読の写真は末尾の「読み込み中」の束に居るが、そこを見ている
+    // 間は同じことが起きる
     let need: Vec<i64> = state.read_pool.with(|db| {
-        ids.into_iter()
-            .filter(|&id| {
-                db.get_by_id(id)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|r| r.thumb_state < 2)
+        ids.iter()
+            .enumerate()
+            .filter(|&(i, &id)| {
+                db.get_by_id(id).ok().flatten().is_some_and(|r| {
+                    r.thumb_state < 2
+                        && days
+                            .get(i)
+                            .copied()
+                            .flatten()
+                            .is_none_or(|day| day == r.day_key)
+                })
             })
+            .map(|(_, &id)| id)
             .collect()
     });
     if !need.is_empty() {
@@ -4877,6 +5116,13 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
         // 絵を書かずに終わる。`prioritize` が投入まで引き受ける
         state.thumbs.prioritize(&need);
     }
+}
+
+/// 絵が出る前に画面から去った一覧のタイルの写真を、優先の列から降ろす（[`pictkura_core::thumbs::ThumbQueue::demote`]）。
+/// ホイールで一気に送ると、通り過ぎた写真の本番が、送り終えた画面の写真の前に並んでいた
+#[tauri::command]
+fn demote_thumbnails(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+    state.thumbs.demote(&ids);
 }
 
 /// 一時フォルダの候補（dev #23）。**中身を OS や他のアプリが黙って消す場所**。
@@ -6872,6 +7118,338 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
+/// 前の版で EXIF を拒まれていた写真を読み直した印（[`pictkura_core::thumbs::reread_stray_exif`]）
+const STRAY_EXIF_REREAD_KEY: &str = "stray_exif_reread_v1";
+/// そのとき開けなかったので見ていない写真の id（カンマ区切り）。次の起動からはこれだけを見直す
+const STRAY_EXIF_PENDING_KEY: &str = "stray_exif_reread_pending";
+
+/// 前の版で EXIF を丸ごと拒まれていた写真（子 IFD の「次の IFD」の欄が 0 でない形）を読み直しへ回す。
+/// 起動時の同期の後に、裏の糸で。
+///
+/// - 一周目は入れ物から読む写真すべて。**済んだ印は読み直しを積んでから書く**——先に書いて落ちると、二度と拾わない
+/// - 開けなかった写真（クラウドにしか無い・ドライブが外れている）は保留に控え、次の起動からはそれだけを見直す
+///   （PR #349 の /code-review: 印だけ書いて捨てると、ファイルが変わらない限り二度と直らない）
+/// - **起動時の同期が転んだ回は走らない**（ルートに届かないと全部が開けず、保留だけが積み上がる）
+fn reread_stray_exif_once(handle: &tauri::AppHandle, startup_failed: bool) {
+    if startup_failed {
+        return;
+    }
+    let handle = handle.clone();
+    let _ = std::thread::Builder::new()
+        .name("stray-exif".into())
+        .spawn(move || {
+            let _ = pictkura_core::panics::catching("reread stray exif", || {
+                let state = handle.state::<AppState>();
+                let Ok(mut db) = Db::open(&state.db_path) else {
+                    return;
+                };
+                let done = db.get_meta(STRAY_EXIF_REREAD_KEY).ok().flatten().is_some();
+                let pending: Vec<i64> = db
+                    .get_meta(STRAY_EXIF_PENDING_KEY)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter_map(|v| v.trim().parse().ok())
+                    .collect();
+                if done && pending.is_empty() {
+                    return;
+                }
+                let only = done.then_some(pending.as_slice());
+                let Ok(result) = pictkura_core::thumbs::reread_stray_exif(
+                    &mut db,
+                    &|p| pictkura_core::cloud::is_cloud_only_path(p),
+                    only,
+                ) else {
+                    return;
+                };
+                if !result.reset.is_empty() {
+                    applog::note(&format!(
+                        "re-reading {} photos whose EXIF was rejected before",
+                        result.reset.len()
+                    ));
+                    state.thumbs.enqueue(&result.reset);
+                    // 行を空にしたので、画面に読み直させる（古い寸法・古いサムネイルの URL を持ったままにしない）
+                    let _ = handle.emit("library-updated", ());
+                }
+                let deferred = result
+                    .deferred
+                    .iter()
+                    .map(i64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let _ = db.set_meta(STRAY_EXIF_PENDING_KEY, &deferred);
+                if !done {
+                    let _ = db.set_meta(
+                        STRAY_EXIF_REREAD_KEY,
+                        &pictkura_core::db::now_ms().to_string(),
+                    );
+                }
+            });
+        });
+}
+
+/// サムネイルの置き場の上限（バイト）。0 = 無制限。極端な値で桁があふれないよう 8 TB で抑える
+fn thumb_cache_cap_bytes(config: &Config) -> i64 {
+    (config.performance.thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024
+}
+
+/// 設定「サムネイルを自動生成」（2026-11-18 利用者と決めた形）。
+///
+/// - 既定はオフ（どの版も）。オンの間、本番のサムネイルが無い写真を**新しい順に**前もって作る
+/// - **クラウドにしか無い写真は開かない**（[`pictkura_core::thumbs::Job::Pregen`]）
+/// - 新しい写真の素性の読み込み（自動の列）と、見えたタイルの仕事が済んでから。USB から取り込んだ後も、
+///   読み込みが終わったところで続きを作り始める
+/// - 置き場の**上限の 8 割で止まる**。掃除役は上限を超えたら 9 割まで消すので、作る・消すが往復しない。
+///   前もって作った絵は「まだ見ていない」として、見た絵より先に（撮影日の古い順に）消える
+/// - 一時停止は設定とは別（上の帯から）。設定には書かず、次の起動では再開する
+struct AutoThumbs {
+    enabled: std::sync::atomic::AtomicBool,
+    paused: std::sync::atomic::AtomicBool,
+    /// 配り手に「いちばん新しい写真から読み直せ」と言う（再生成の後）
+    restart: std::sync::atomic::AtomicBool,
+    status: Mutex<AutoThumbsStatus>,
+}
+
+impl AutoThumbs {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled: std::sync::atomic::AtomicBool::new(enabled),
+            paused: std::sync::atomic::AtomicBool::new(false),
+            restart: std::sync::atomic::AtomicBool::new(false),
+            status: Mutex::new(AutoThumbsStatus::default()),
+        }
+    }
+}
+
+/// 上の帯の「サムネイル 残り n」の材料
+#[derive(serde::Serialize, Clone, Default, PartialEq, Eq, Debug)]
+struct AutoThumbsStatus {
+    /// いま作っている（配っている・作業中がある）
+    working: bool,
+    /// 一時停止中
+    paused: bool,
+    /// 残り（本番の無い写真から、この起動で見送ったものを引いた数）
+    left: usize,
+    /// 置き場が上限の 8 割に達したので止まっている
+    at_cap: bool,
+}
+
+/// 配り手が一度に読む候補の数と、配る間隔
+const AUTO_THUMBS_BATCH: usize = 256;
+const AUTO_THUMBS_TICK: std::time::Duration = std::time::Duration::from_secs(2);
+/// 作り終えた（配るものが無かった）後、新しい写真を見に行くまでの間
+const AUTO_THUMBS_REST: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// 見張りの束が最後に届いてから、これだけ経つまでは「読み込み中」の束を片付けない（[`settle_unread_when_quiet`]）
+const WATCH_SETTLE_QUIET_MS: i64 = 10_000;
+
+/// 見張りの取り込み中の印（[`AppState::watch_ingesting`]）。落ちても外れるように閉じ込める
+struct WatchIngesting<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> WatchIngesting<'a> {
+    fn start(n: &'a std::sync::atomic::AtomicUsize) -> Self {
+        n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(n)
+    }
+}
+
+impl Drop for WatchIngesting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 素性の読み込みが一段落したら（起動時の同期・走査が終わり、読む列が 2 拍続けて空）、「読み込み中」の束に残った写真を
+/// まとめてファイルの日付の日へ出す（[`pictkura_core::db::UNREAD_DAY_KEY`]）。読めなかった写真は次の起動で読み直す。
+///
+/// **DB を握ってから、見張りの取り込み中でないこと・列が空であることを確かめ直して出す。** 見張りは DB を握る前に
+/// 取り込み中の印を立て、列に積み終えてから外すので、ここで印が立っていなければ、取り込みはまだ始まっていないか、
+/// もう列に積み終えている。拍を数えるだけだと、見張りが DB を握って大きな束を入れている間に拍が揃い、手放した直後
+/// （列に積む前）に入れたばかりの写真を全部出していた（PR #351 の codex）
+fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
+    let state = handle.state::<AppState>();
+    let quiet = || {
+        state.startup_done.load(std::sync::atomic::Ordering::SeqCst)
+            && state
+                .scans_running
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            && state
+                .watch_ingesting
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            // 見張りの束が続いている間（遅いコピー・書き込み中）は一段落ではない。書きかけで読めなかった写真を、
+            // 書き終える前にファイルの日付（今日＝先頭）へ出さない（PR #351 の /code-review）
+            && pictkura_core::db::now_ms()
+                - state.watch_last_ms.load(std::sync::atomic::Ordering::SeqCst)
+                >= WATCH_SETTLE_QUIET_MS
+            && state.thumbs.queue().metadata_idle()
+    };
+    *quiet_ticks = if quiet() { *quiet_ticks + 1 } else { 0 };
+    if *quiet_ticks < 2 {
+        return;
+    }
+    let moved = {
+        let mut db = lock_ok(&state.db);
+        if !quiet() {
+            *quiet_ticks = 0;
+            return;
+        }
+        db.settle_all_unread().unwrap_or(0)
+    };
+    if moved > 0 {
+        applog::note(&format!(
+            "{moved} new photos could not be read; listed by file date"
+        ));
+        let _ = handle.emit("library-updated", ());
+    }
+}
+
+/// [`AutoThumbs`] の配り手。2 秒ごとに起き、作る列が細っていたら次の候補を新しい順に積む
+fn spawn_auto_thumbs(handle: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        // 配り手を絶やさない（掃除役と同じ）。落ちたら 1 拍おいて回し直す
+        let _ = pictkura_core::panics::catching("auto thumbnails", || {
+            let mut cursor: Option<pictkura_core::db::PregenCursor> = None;
+            let mut fed_this_pass = false;
+            let mut rest_until: Option<std::time::Instant> = None;
+            let mut quiet_ticks = 0u32;
+            loop {
+                std::thread::sleep(AUTO_THUMBS_TICK);
+                let state = handle.state::<AppState>();
+                let queue = state.thumbs.queue();
+                settle_unread_when_quiet(&handle, &mut quiet_ticks);
+                let enabled = state
+                    .auto_thumbs
+                    .enabled
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                let paused = state
+                    .auto_thumbs
+                    .paused
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                let left = || {
+                    state
+                        .read_pool
+                        .with(|db| db.pregen_candidate_count())
+                        .unwrap_or(0)
+                        .saturating_sub(queue.pregen_skipped())
+                };
+                let publish = |next: AutoThumbsStatus| *lock_ok(&state.auto_thumbs.status) = next;
+                if state
+                    .auto_thumbs
+                    .restart
+                    .swap(false, std::sync::atomic::Ordering::SeqCst)
+                {
+                    cursor = None;
+                    rest_until = None;
+                    fed_this_pass = false;
+                }
+                if !enabled {
+                    queue.clear_pregen();
+                    cursor = None;
+                    rest_until = None;
+                    publish(AutoThumbsStatus::default());
+                    continue;
+                }
+                if paused {
+                    queue.clear_pregen();
+                    cursor = None;
+                    rest_until = None;
+                    publish(AutoThumbsStatus {
+                        paused: true,
+                        left: left(),
+                        ..Default::default()
+                    });
+                    continue;
+                }
+                let cap = thumb_cache_cap_bytes(&lock_ok(&state.config));
+                if cap > 0 {
+                    let used = state
+                        .read_pool
+                        .with(|db| db.thumb_cache_usage())
+                        .unwrap_or(0);
+                    if used >= cap / 10 * 8 {
+                        queue.clear_pregen();
+                        cursor = None;
+                        publish(AutoThumbsStatus {
+                            at_cap: true,
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                }
+                // 新しい写真の素性の読み込み・走査・見えたタイルの仕事が先。その間は帯に「読み込み中」が出ている
+                // 起動時の同期は `scans_running` に数えない（#57）ので、終わった旗も見る
+                let scanning = state
+                    .scans_running
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    > 0
+                    || !state.startup_done.load(std::sync::atomic::Ordering::SeqCst);
+                if scanning || !queue.foreground_idle() {
+                    // 表示は前のまま（見えたタイルの仕事の間に消すと、帯の表示が点滅し、開いた小窓が閉じる。
+                    // 読み込み中は画面の側が「読み込み中」を先に出す）。走査や読み込みの後は新しい写真が
+                    // 入っているかもしれないので、いちばん新しい側から読み直す（PR #348 の /code-review）
+                    cursor = None;
+                    rest_until = None;
+                    fed_this_pass = false;
+                    continue;
+                }
+                if rest_until.is_some_and(|until| std::time::Instant::now() < until) {
+                    continue;
+                }
+                rest_until = None;
+                // 作る列が細ったら足す（働き手の枠の数倍だけ。列を長くすると一時停止やオフで捨てる量が増える）
+                if queue.pregen_backlog() < AUTO_THUMBS_BATCH / 4 {
+                    // 見送った写真ばかりの区間は、続けて読み進める（1 拍に 1 区間だと、クラウドにしか無い写真が
+                    // 何千枚も続くライブラリで一周に何分もかかる）
+                    let mut pass_done = false;
+                    for _ in 0..40 {
+                        let batch = state
+                            .read_pool
+                            .with(|db| db.pregen_candidates(cursor, AUTO_THUMBS_BATCH))
+                            .unwrap_or_default();
+                        let Some(&(_, last)) = batch.last() else {
+                            pass_done = true;
+                            break;
+                        };
+                        cursor = Some(last);
+                        let ids: Vec<i64> = batch.into_iter().map(|(id, _)| id).collect();
+                        // 積むかどうか（列に居る・見送り・失敗の上限）は列が 1 回の錠の中で決める
+                        if queue.enqueue_pregen(&ids) > 0 {
+                            fed_this_pass = true;
+                            break;
+                        }
+                    }
+                    if pass_done {
+                        // 一周した。何か積んだ周なら、すぐもう一周（積み直された写真・取り込まれた写真を拾う）。
+                        // 何も積まなかった周なら作り終えた——しばらく休んで、新しい写真を見に行く
+                        cursor = None;
+                        if !fed_this_pass && queue.pregen_backlog() == 0 {
+                            rest_until = Some(std::time::Instant::now() + AUTO_THUMBS_REST);
+                        }
+                        fed_this_pass = false;
+                    }
+                }
+                let working = queue.pregen_backlog() > 0;
+                publish(AutoThumbsStatus {
+                    working,
+                    left: if working { left().max(1) } else { 0 },
+                    ..Default::default()
+                });
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    });
+}
+
+/// 置き場を見て回って孤児のサムネイルを片付けた時刻（ミリ秒）。控え（`thumb_trash`）が拾えない孤児——この版より前に
+/// 残ったもの、付け替えた後で確定に失敗した（落ちた・ディスクが満杯）サムネイル——のために、起動の後に
+/// [`ORPHAN_SWEEP_EVERY_MS`] ごと、1回だけ見て回る（PR の codex）
+const ORPHAN_SWEEP_KEY: &str = "orphan_thumb_sweep_v1";
+/// 置き場を見て回る間隔。3万枚で 0.3〜0.4 秒（Windows の NTFS）なので、週に1回なら気にならない
+const ORPHAN_SWEEP_EVERY_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
 /// サムネイル未生成のとき、原本を一覧へ出して良い最大の辺（ピクセル）。
 ///
 /// 既定のサムネイル（512px）の4倍。設定値から計算したくなるが、
@@ -6879,7 +7457,12 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
 /// （起動直後のスキャンがそのロックを持っている間、一覧が丸ごと止まる。実測で踏んだ）。
 const MAX_ORIGINAL_THUMB_EDGE: i64 = 2048;
 
-/// サムネイル未生成のとき、元ファイルをそのまま一覧へ出して良いか。
+/// サムネイル未生成のとき、元ファイルをそのまま代わりに出して良いか。
+///
+/// **一覧のタイルはふつうここまで来ない**——働き手が作る写真は空のタイルで待つ（`handle_media_request`）。
+/// ここを通るのは一覧以外（カレンダーの表紙・ビューアの下の帯など）と、一覧でも働き手が作らない写真・失敗が
+/// 上限に達した写真・**クラウドにしか無い写真**。最後のものは下の判定だけが空のタイルにしている（外すと、
+/// 一覧の要求のたびに OneDrive から落とさせる）
 ///
 /// 条件は3つ:
 ///
@@ -6909,17 +7492,50 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     if pictkura_core::svg::is_svg_path(&record.path) {
         return true;
     }
-    // 寸法が未確認のうちは今までどおり配る（最初の一覧をすぐ出すため）
+    // 寸法が未確認のうちは今までどおり配る（最初の表紙をすぐ出すため）
     let Some(longest) = record.width.zip(record.height).map(|(w, h)| w.max(h)) else {
         return true;
     };
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// サムネイルがまだ無い写真で、一覧のタイルに原本を渡してよいファイルの大きさの上限（`handle_media_request`）。
+/// 寸法の上限（[`MAX_ORIGINAL_THUMB_EDGE`]）の内の JPEG はふつう数 MB まで
+const GRID_ORIGINAL_MAX_BYTES: i64 = 8 * 1024 * 1024;
+
+/// 一覧のタイルからの要求か（`GridThumb.tsx` が URL に `grid=1` を付ける）
+fn requested_by_grid(url: &str) -> bool {
+    url.split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
+}
+
+/// 一覧のタイルが、その写真をどの日に並べて頼んだか（`GridThumb.tsx` が `day=` を付ける）。
+///
+/// 新しいライブラリでは、撮影日を読んだ写真が本当の日へ移る。移る前に出た要求（タイルの要求・
+/// `set_visible_priority`）が後から届くと、もう画面に居ない写真の本番を作ることになる（win2: 3万枚で約9千枚）。
+/// 日が違えば、その要求は古い。検索中（日の差し替えが当たらない）は付けない
+fn requested_day(url: &str) -> Option<i64> {
+    let (_, q) = url.split_once('?')?;
+    q.split('&')
+        .find_map(|kv| kv.strip_prefix("day=")?.parse().ok())
+}
+
+/// 働き手がこの写真のサムネイルを作るか（品質段階で見る分）。作らない写真（SVG＝[`THUMB_STATE_NOT_NEEDED`]、
+/// 絵の無い RAW＝[`THUMB_STATE_NO_PREVIEW`]）を一覧が空のタイルで待つと、灰色のまま二度と変わらない
+fn worker_makes_thumb(thumb_state: i64) -> bool {
+    use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
+    thumb_state != THUMB_STATE_NOT_NEEDED && thumb_state != THUMB_STATE_NO_PREVIEW
+}
+
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
-fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Response<Vec<u8>> {
+fn handle_media_request(
+    state: &AppState,
+    url: &str,
+    range: Option<&str>,
+    resend: &dyn Fn(pictkura_core::MediaRecord),
+) -> Response<Vec<u8>> {
     let not_found = || {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -7053,6 +7669,48 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
+            // 一覧のタイルには、サムネイルが無い間は**原本を渡しつつ、働き手の列の先頭へ押す**。出来れば URL
+            // （`thumb_state`）が変わり、タイルがサムネイルへ読み直す。#344 では原本を渡さず空のタイルで待たせたが、
+            // 画素で測り直すと（win2、DOM の数え方は描かれる前の絵を数えていた）、止めてから写真がそろうまでが
+            // 1.0.2 より遅かった（一気送りの後 0.3 秒で灰色 0.48 対 0.04、帯の後 0.62）。原本を渡すと 0.14 で、帯を
+            // 速く動かして原本を約 200MB 描いても詰まらなかった——一覧の読みは列（`gridThumbs.ts`、同時4枚・画面外は
+            // 捨てる）が絞っているので、#344 の前の「約600MB を読んで詰まる」は起きない
+            //
+            // 原本を描けない写真（RAW・HEIC・クラウドだけ等）は空のタイルで待ち、働き手がその写真を片付けた知らせで
+            // 問い直す（`gridThumbs.ts` の `BlankWaiters`）。
+            // 待たせないのは、働き手が作らない写真と、失敗が上限に達した写真（今までどおり原本か空のタイル。
+            // 上限に達した回の知らせで問い直し、その場で原本へ替わる）、そして
+            // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
+            // 写真まで OneDrive から落とさせる。見えている写真は、止まったときの `set_visible_priority` が積む）。
+            // ファイルを stat する判定は最後に置く（遅い NAS で要求ごとに払わない）
+            // 古い要求（頼んだ後に撮影日が読まれて別の日へ移った）は、空のタイルで返して積まない。タイルは
+            // 移った先で作り直され、そこで見えていれば頼み直す。**いまの行を配り直す**——移ったことを一覧が
+            // 知らないまま（日を読み込んでいる最中に知らせが来て当たらなかった等）だと、古い日で頼み続けて
+            // 灰色のまま残る（/code-review）。配り直せば一覧が日を動かし、タイルは外れる
+            None if requested_by_grid(url)
+                && requested_day(url).is_some_and(|day| day != record.day_key) =>
+            {
+                resend(record.clone());
+                return blank_thumb();
+            }
+            None if requested_by_grid(url)
+                && worker_makes_thumb(record.thumb_state)
+                && !state.thumbs.is_blocked(id)
+                && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
+            {
+                state.thumbs.prioritize(&[id]);
+                // 一覧で原本を渡すのは、**寸法が分かっていて上限以内**の写真だけ。寸法が未確認のうち（新しい
+                // ライブラリ）は大きさが分からず、NAS の 100MP のパノラマを丸ごと読みうる——その間は空のタイルで
+                // 待つ（素性を読むのは速い。PR #356 の /code-review）
+                // ファイルの大きさにも上限を付ける（寸法が小さくても、長い GIF は何十 MB にもなる）
+                if record.width.is_none()
+                    || record.size > GRID_ORIGINAL_MAX_BYTES
+                    || !can_serve_original(&record)
+                {
+                    return blank_thumb();
+                }
+                record.path
+            }
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,
         },
@@ -7627,7 +8285,17 @@ pub fn run() {
                 config.save(&config_path).map_err(errs::for_log_err)?;
             }
             let db_path = data_dir.join("pictkura.db");
-            let db = Db::open(&db_path).map_err(errs::for_log_err)?;
+            let mut db = Db::open(&db_path).map_err(errs::for_log_err)?;
+            // 新しいライブラリでは、前の版で読み違えた写真を読み直す仕事（`reread_stray_exif_once`）が無い。印を先に
+            // 書いて、写真全部の頭を読む一周を省く
+            if db.media_count().unwrap_or(1) == 0
+                && db.get_meta(STRAY_EXIF_REREAD_KEY).ok().flatten().is_none()
+            {
+                let _ = db.set_meta(
+                    STRAY_EXIF_REREAD_KEY,
+                    &pictkura_core::db::now_ms().to_string(),
+                );
+            }
             // 読み取り接続プール（段階B-4）。本数はコア数の半分・2〜4本で十分
             // （読み取りは短時間で返り、WALによりライターと並行に動ける）
             let pool_size = std::thread::available_parallelism()
@@ -7663,7 +8331,11 @@ pub fn run() {
                 },
             );
 
-            let thumb_cache_mb = config.performance.thumb_cache_mb;
+            // 前もって作る仕事は働き手の半分まで（見えたタイルの仕事を待たせない）
+            thumbs
+                .queue()
+                .set_pregen_limit((thumbs.worker_count() / 2).max(1));
+            let auto_thumbs = AutoThumbs::new(config.performance.auto_thumbnails);
             // 冷起動（AutoPlay/2重起動でこのプロセスが最初のとき）の取り込み対象
             let pending_import =
                 import_path_from_args(&std::env::args().collect::<Vec<_>>()).map(narrow_to_dcim);
@@ -7674,6 +8346,10 @@ pub fn run() {
                 config: Mutex::new(config),
                 config_path,
                 thumbs,
+                auto_thumbs,
+                watch_burst: Mutex::new(WatchBurst::default()),
+                watch_ingesting: std::sync::atomic::AtomicUsize::new(0),
+                watch_last_ms: std::sync::atomic::AtomicI64::new(0),
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
@@ -8026,6 +8702,7 @@ pub fn run() {
             // 残っている」で済み、再生成時に同名パスへ上書きされる
             let janitor_handle = app.handle().clone();
             let janitor_db_path = db_path.clone();
+            let janitor_thumbs_dir = data_dir.join("thumbs");
             std::thread::spawn(move || {
                 // **掃除役を絶やさない**（ゲート1の指摘）。ここが死ぬとLRU削除が
                 // 永久に止まり、サムネイルが上限を超えて**ディスクを埋め続ける**
@@ -8037,20 +8714,63 @@ pub fn run() {
                 // 見なされて**掃除役が静かに永久停止する**——落ちないぶん誰も気付けない
                 loop {
                     let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
-                        let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
+                        let mut walked_this_session = false;
                         loop {
                             std::thread::sleep(std::time::Duration::from_secs(60));
                             let state = janitor_handle.state::<AppState>();
                             let touches: Vec<(i64, i64)> =
                                 lock_ok(&state.thumb_touches).drain().collect();
-                            if touches.is_empty() && cap_bytes == 0 {
-                                continue;
-                            }
                             if db.is_none() {
                                 db = Db::open(&janitor_db_path).ok();
                             }
                             let Some(db) = db.as_mut() else { continue };
+                            // 上限は毎回読む（設定のスライダーで変わる）
+                            let cap_bytes = thumb_cache_cap_bytes(&lock_ok(&state.config));
+                            // 写真の行が消えた・サムネイルが外れたときに DB が控えたファイルを消す
+                            // （`drain_thumb_trash`。置き場は見て回らない。控えが無ければ1回の読みで終わる）
+                            if let Ok(n) = pictkura_core::thumbs::drain_thumb_trash(
+                                db,
+                                &janitor_thumbs_dir,
+                                2000,
+                                &|id| state.thumbs.is_active(id),
+                            ) {
+                                if n > 0 {
+                                    applog::note(&format!("removed {n} thumbnails no photo uses"));
+                                }
+                            }
+                            // 控えが拾えない孤児は、置き場を見て回って片付ける（週に1回まで。この起動で1回だけ）
+                            let sweep_due = !walked_this_session
+                                && db
+                                    .get_meta(ORPHAN_SWEEP_KEY)
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|v| v.parse::<i64>().ok())
+                                    .is_none_or(|at| {
+                                        pictkura_core::db::now_ms() - at >= ORPHAN_SWEEP_EVERY_MS
+                                    });
+                            if sweep_due {
+                                walked_this_session = true;
+                                if let Ok(n) = pictkura_core::thumbs::sweep_orphan_thumbs(
+                                    db,
+                                    &janitor_thumbs_dir,
+                                    std::time::Duration::from_secs(600),
+                                    &|id| state.thumbs.is_active(id),
+                                ) {
+                                    let (n, deferred) = n;
+                                    // 見送り（新しすぎる・作業中・消せなかった）が残る間は「済んだ」時刻を書かない。
+                                    // 控えに載っていない孤児なので、次の起動でまた見て回る（PR の codex）
+                                    if deferred == 0 {
+                                        let _ = db.set_meta(
+                                            ORPHAN_SWEEP_KEY,
+                                            &pictkura_core::db::now_ms().to_string(),
+                                        );
+                                    }
+                                    if n > 0 {
+                                        applog::note(&format!("removed {n} orphaned thumbnails"));
+                                    }
+                                }
+                            }
                             if !touches.is_empty() {
                                 // 書き込み失敗（長時間の書き込みトランザクションとの競合等）で
                                 // タッチを失うと、直近閲覧中のサムネイルほどLRUで削除されやすく
@@ -8098,6 +8818,9 @@ pub fn run() {
                     });
                 }
             });
+
+            // 設定「サムネイルを自動生成」の配り手
+            spawn_auto_thumbs(app.handle().clone());
 
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
             rebuild_watcher(app.handle());
@@ -8167,6 +8890,7 @@ pub fn run() {
                 state
                     .startup_done
                     .store(true, std::sync::atomic::Ordering::Release);
+                reread_stray_exif_once(&handle, failed);
                 let _ = handle.emit(
                     "startup-scan-finished",
                     StartupDoneDto {
@@ -8199,7 +8923,11 @@ pub fn run() {
                 // 500を返しておけば、そのセルだけが空になって次へ進める
                 let response =
                     pictkura_core::panics::catching(&format!("media request {uri}"), || {
-                        handle_media_request(&state, &uri, range.as_deref())
+                        // 古い日で頼んできたタイルへ、いまの行を配り直す（一覧が日を動かす）
+                        let resend = |record: pictkura_core::MediaRecord| {
+                            let _ = app.emit("media-updated", MediaItemDto::from(record));
+                        };
+                        handle_media_request(&state, &uri, range.as_deref(), &resend)
                     })
                     .unwrap_or_else(|| {
                         // **一覧のタイルには壊れた画像アイコンを出さない**
@@ -8220,6 +8948,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             timeline_summary,
             list_day,
+            list_days,
             list_memories,
             get_stats,
             startup_scan_finished,
@@ -8228,6 +8957,7 @@ pub fn run() {
             remove_library_root,
             get_config,
             set_visible_priority,
+            demote_thumbnails,
             set_import_destination,
             import_from_folder,
             list_drives,
@@ -8289,6 +9019,11 @@ pub fn run() {
             set_pickeds,
             set_auto_advance,
             set_hardware_acceleration,
+            set_auto_thumbnails,
+            set_auto_thumbnails_paused,
+            set_thumb_cache_mb,
+            thumb_cache_info,
+            rebuild_thumbnails,
             set_pair_view,
             set_viewer_transition,
             set_slideshow_transition,
@@ -8355,6 +9090,87 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 外で入った写真は、速くまとまって入ったときだけ数える。続く束も数え、間が空いたら終わり
+    #[test]
+    fn external_photos_count_once_a_burst_is_large_enough() {
+        let mut b = super::WatchBurst::default();
+        let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+        let ids = |r: std::ops::Range<i64>| r.collect::<Vec<_>>();
+        assert!(b.on_batch(at(0), &ids(0..5)).is_empty(), "5 枚では出さない");
+        assert!(b.on_batch(at(3_000), &ids(5..15)).is_empty());
+        // 書き込み途中の大きいファイル（新しい写真は無い束）も、まとまりを続ける
+        assert!(b.on_batch(at(9_000), &[]).is_empty());
+        // 遅い USB: 数枚ずつ続いて 20 枚に届いたら、まとまり全部を数える
+        assert_eq!(b.on_batch(at(15_000), &ids(15..21)), ids(0..21));
+        // 続く束は、その束の写真だけ
+        assert_eq!(b.on_batch(at(18_000), &ids(21..22)), ids(21..22));
+        // 間が空いたら、まとまりは終わり
+        assert!(b.on_batch(at(29_000), &ids(100..103)).is_empty());
+    }
+
+    /// 同期クライアントが数秒ごとに1枚ずつ届ける細い流れは、何分続いても数えない
+    #[test]
+    fn a_steady_trickle_never_counts() {
+        let mut b = super::WatchBurst::default();
+        let t0 = std::time::Instant::now();
+        for i in 0..100 {
+            let t = t0 + std::time::Duration::from_secs(5 * i as u64);
+            assert!(b.on_batch(t, &[i]).is_empty(), "{i} 枚目");
+        }
+    }
+
+    /// 一覧のタイルが灰色で待つのは、働き手がこれから作る写真だけ（作らない写真で待つと灰色のまま変わらない）
+    #[test]
+    fn the_grid_waits_only_for_thumbnails_the_worker_will_make() {
+        use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
+        assert!(super::worker_makes_thumb(0));
+        assert!(super::worker_makes_thumb(1), "仮のサムネイルから本番へ");
+        assert!(!super::worker_makes_thumb(THUMB_STATE_NOT_NEEDED), "SVG");
+        assert!(
+            !super::worker_makes_thumb(THUMB_STATE_NO_PREVIEW),
+            "絵の無い RAW"
+        );
+    }
+
+    /// タイルが頼んだ日を URL から読む（無ければ None、数でなければ None）
+    #[test]
+    fn the_requested_day_is_read_from_the_query() {
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?v=1-0-0&grid=1&day=20251228"),
+            Some(20251228)
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?v=1&grid=1"),
+            None
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?day=x"),
+            None
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?today=3"),
+            None
+        );
+    }
+
+    /// 一覧のタイルの要求だけが `grid=1` を名乗る（サムネイルが出来るのを空のタイルで待つ相手）
+    #[test]
+    fn only_grid_tiles_are_recognised_by_their_marker() {
+        assert!(super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1-0-0&grid=1"
+        ));
+        assert!(super::requested_by_grid(
+            "media://localhost/thumb/5?grid=1&v=1"
+        ));
+        assert!(!super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1-0-0"
+        ));
+        assert!(!super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1&grid=10"
+        ));
+        assert!(!super::requested_by_grid("http://media.localhost/thumb/5"));
+    }
 
     /// 起動の引数から「開く写真」を全部拾う（1 回の起動に並べて渡す形。エクスプローラーで複数を選んで開いたとき）。
     /// フラグとその値・argv[0]・相対パス・無いファイル・同じパスの 2 度目は拾わない

@@ -23,8 +23,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
+import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
+import { GridThumb } from "./GridThumb";
+import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
+import { applySuggestion, isBareKey, suggest, tokenAt, yearsOf, type Suggestion } from "./searchSuggest";
+import { keepsWhileRefetching, pickStaleDays, type AskedFor } from "./staleDays";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -77,6 +82,7 @@ import {
   getStats,
   listCameras,
   listDay,
+  listDays,
   openDecoderHelp,
   listDrives,
   scanRootsOnDrives,
@@ -107,6 +113,7 @@ import {
   scopeMedia,
   visibleMediaIds,
   setVisiblePriority,
+  demoteThumbnails,
   syncNow,
   thumbSrc,
   timelineSummary,
@@ -169,6 +176,7 @@ import {
 import {
   formatDateTime,
   formatDayKey,
+  UNREAD_DAY,
   formatDuration,
   formatLocale,
   formatNumber,
@@ -313,6 +321,8 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
+/** 読めなかった日を取り直すまで（ms） */
+const DAY_RETRY_MS = 2000;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -328,13 +338,6 @@ const FAST_FLIP_MS = 400;
  */
 function revealThumb(e: { currentTarget: HTMLImageElement }) {
   e.currentTarget.setAttribute("data-shown", "");
-}
-/**
- * 作り直した `<img>` の絵が**もう描ける**なら、浮かべずにそのまま出す——行の組み直し（日を読み込んだ・窓の幅・
- * 大きさ）やスクロールで戻ったとき、出ていた絵が消えて浮かび直さないように（ゲート2）
- */
-function revealIfPainted(img: HTMLImageElement | null) {
-  if (img && img.complete && img.naturalWidth > 0) img.setAttribute("data-shown", "");
 }
 /**
  * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
@@ -947,6 +950,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const [anchorId, setAnchorId] = useState<number | null>(null);
   /** 検索ボックスの入力（打鍵ごとの値） */
   const [queryInput, setQueryInput] = useState("");
+  /** 検索欄の候補（`searchSuggest.ts`）: カーソルの位置・開いているか・選んでいる行（-1 は選んでいない） */
+  const [searchCaret, setSearchCaret] = useState(0);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestActive, setSuggestActive] = useState(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  /** 絞っていない一覧の年ごとの枚数（`year:` の候補）。検索中の骨組みは結果に合わせて変わるので、絞っていない時に控える */
+  const [libraryYears, setLibraryYears] = useState<{ year: number; count: number }[]>([]);
   /** 実際にバックエンドへ投げている検索クエリ（入力のデバウンス後） */
   const [query, setQuery] = useState("");
   /**
@@ -957,6 +967,37 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const filtering = filter !== "all" || kind !== "all" || query !== "";
   /** カメラ別の枚数（左ペインとコマンドパレットの候補） */
   const [cameras, setCameras] = useState<Camera[]>([]);
+  const searchSuggestions: Suggestion[] = useMemo(
+    () =>
+      suggestOpen && tokenAt(queryInput, searchCaret).end === searchCaret
+        ? // 候補は、カーソルが語の終わりにあるときだけ（語の途中へ戻ったとき、残りを飲み込まないように）
+          suggest(tokenAt(queryInput, searchCaret).text, { years: libraryYears, cameras })
+        : [],
+    [suggestOpen, queryInput, searchCaret, libraryYears, cameras],
+  );
+  useEffect(() => {
+    if (summaryFor && summaryFor.query === "" && summaryFor.filter === "all" && summaryFor.kind === "all") {
+      setLibraryYears(yearsOf(summary));
+    }
+  }, [summary, summaryFor]);
+  // 候補の顔ぶれが変わったら（カーソルが動いた・カメラの一覧が並び直った）選んでいる行を外す——同じ番号が別の行を指す
+  const suggestKey = searchSuggestions.map((s) => s.insert).join("\n");
+  useEffect(() => setSuggestActive(-1), [suggestKey]);
+  /** 候補を差し込む（カーソルのある語を置き換え、カーソルを後ろへ。値の候補が続くキーなら開いたまま） */
+  const pickSuggestion = (s: Suggestion | undefined) => {
+    if (!s) return;
+    const el = searchInputRef.current;
+    const caret = el?.selectionStart ?? queryInput.length;
+    const next = applySuggestion(queryInput, caret, s);
+    setQueryInput(next.value);
+    setSearchCaret(next.caret);
+    setSuggestActive(-1);
+    setSuggestOpen(s.type === "key");
+    window.requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(next.caret, next.caret);
+    });
+  };
   /** カメラ一覧を全部見せるか（既定は上位数台だけ） */
   const [camerasExpanded, setCamerasExpanded] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1022,6 +1063,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const [editorKeys, setEditorKeys] = useState<Record<string, string>>({});
   /** 設定ダイアログの表示と、その中身になる設定スナップショット */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 設定を開いたら見せる節（上の帯の「サムネイル 残り n」から開いたとき）。閉じたら忘れる */
+  const [settingsFocus, setSettingsFocus] = useState<"thumbnails" | null>(null);
+  useEffect(() => {
+    if (!settingsOpen) setSettingsFocus(null);
+  }, [settingsOpen]);
   // 取り込みウィザード（第5部 段階E）。startPathはドライブから開いたときの初期フォルダ
   const [wizardOpen, setWizardOpen] = useState(false);
   /**
@@ -1558,6 +1604,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    failedDaysRef.current.clear();
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1701,6 +1748,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       const counts = new Map(sum.map((d) => [d.day_key, d.count]));
       let next: Map<number, MediaItem[]> | null = null;
       for (const [dayKey, items] of prev) {
+        // **見えている「読み込み中の写真」の束だけは捨てない**。読み込み中は写真が束から出ていくので、この取り直し
+        // （2秒ごと）のたびに枚数がずれ、捨てると取り直しが届くまでの1コマ、束が見積もりの枠だけになってタイルが
+        // 0枚になった（win2: 束を見ている間 2 秒ごと、PR #352）。取り直しは描画の後の「見えている日」の処理が頼む
+        // （`pickStaleDays`）。ほかの日はこれまでどおり捨てる——一覧全体で捨てない形にすると、ビューアや選択の
+        // 送りが「読み込み済みの日に無い＝消えた」と読む所と食い違った
+        if (keepsWhileRefetching(dayKey, UNREAD_DAY, visibleDaysRef.current, counts.has(dayKey))) continue;
         if (counts.get(dayKey) !== items.length) {
           if (!next) next = new Map(prev);
           next.delete(dayKey);
@@ -1723,28 +1776,54 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   /** ビューアが開いている間、その表示日をキャッシュ間引きから保護する */
   const viewerDayRef = useRef<number | null>(null);
 
-  /** 1日分をオンデマンド取得する（重複・世代違いは無視。失敗は2回まで自動再試行） */
-  const loadDay = useCallback((dayKey: number, attempt = 0) => {
-    if (inflightRef.current.has(dayKey)) return;
-    inflightRef.current.add(dayKey);
+  /** 読めなかった日と、次に頼んでよい時刻（`loadDays`） */
+  const failedDaysRef = useRef(new Map<number, number>());
+
+  /**
+   * 日の一覧をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
+   * 重複・世代違いは無視し、キャッシュは見えている日・ビューアの表示日を残して間引く。
+   * 読めなかった日は、見えているかに関わらず少し待って2回まで取り直す（ビューアの表示日と前後の先読みの日は
+   * 一覧では見えていない）
+   */
+  const loadDays = useCallback((keys: readonly number[], attempt = 0): void => {
+    const now = Date.now();
+    // 読めなかった日は、取り直しの時計に任せる（スクロールのたびに頼み直さない）
+    const want = keys.filter((d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now);
+    if (want.length === 0) return;
+    for (const d of want) inflightRef.current.add(d);
     const gen = generationRef.current;
-    listDay(dayKey, queryRef.current, filterRef.current)
-      .then((items) => {
-        inflightRef.current.delete(dayKey);
+    listDays(want, queryRef.current, filterRef.current)
+      .then((pairs) => {
+        // 世代が替わっていれば何も触らない——読み途中の印は新しい世代の要求のものになっている
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
+        for (const d of want) inflightRef.current.delete(d);
+        const got = new Set(want);
+        // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）。理由は1回だけ出す
+        const failed = pairs.filter((p) => p.items === null);
+        if (failed.length > 0) {
+          const firstError = failed.find((p) => p.error)?.error;
+          if (firstError) fail(errText(firstError));
+          const until = Date.now() + DAY_RETRY_MS;
+          for (const p of failed) failedDaysRef.current.set(p.day_key, until);
+          if (attempt < 2) {
+            window.setTimeout(() => {
+              if (generationRef.current !== gen) return;
+              // 見えている日に限らず取り直す（ビューアの表示日と前後の先読みの日は、一覧では見えていない）
+              const still = failed.map((p) => p.day_key);
+              for (const d of still) failedDaysRef.current.delete(d);
+              if (still.length > 0) loadDays(still, attempt + 1);
+            }, DAY_RETRY_MS);
+          }
+        }
+        // 全部読めなかったなら一覧を組み直さない
+        if (pairs.every((p) => p.items === null)) return;
         setDayItems((prev) => {
           const next = new Map(prev);
-          next.set(dayKey, items);
-          // キャッシュ上限を超えたら、可視範囲外の古い日から間引く（挿入順=FIFO）。
-          // ビューアの表示日はスライドショー中に消えないよう保護する
+          for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
           if (next.size > DAY_CACHE_MAX) {
             for (const key of next.keys()) {
               if (next.size <= DAY_CACHE_TRIM_TO) break;
-              if (
-                key !== dayKey &&
-                key !== viewerDayRef.current &&
-                !visibleDaysRef.current.has(key)
-              ) {
+              if (!got.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
                 next.delete(key);
               }
             }
@@ -1753,22 +1832,27 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         });
       })
       .catch((e) => {
-        inflightRef.current.delete(dayKey);
+        if (generationRef.current !== gen) return;
         fail(errText(e));
-        // 一時的な失敗（DBロック競合等）に備え、可視のままなら少し待って再試行。
-        // それでも失敗が続く場合はスクロール等で可視範囲が変わったときに再試行される
+        // 呼び出しごと失敗した。すぐ頼み直さず（スクロールのたびに同じ失敗を重ねない）、時計が切れたら
+        // まだ見えている日とビューアの表示日だけを取り直す（通り過ぎた日は、見えたときに頼む）
+        const until = Date.now() + DAY_RETRY_MS;
+        for (const d of want) {
+          inflightRef.current.delete(d);
+          failedDaysRef.current.set(d, until);
+        }
         if (attempt < 2) {
           window.setTimeout(() => {
-            if (
-              generationRef.current === gen &&
-              visibleDaysRef.current.has(dayKey)
-            ) {
-              loadDay(dayKey, attempt + 1);
-            }
-          }, 2000);
+            if (generationRef.current !== gen) return;
+            for (const d of want) failedDaysRef.current.delete(d);
+            const still = want.filter((d) => visibleDaysRef.current.has(d) || d === viewerDayRef.current);
+            if (still.length > 0) loadDays(still, attempt + 1);
+          }, DAY_RETRY_MS);
         }
       });
   }, []);
+  /** 1日分（ビューアの表示日など）。中身は `loadDays` と同じ道 */
+  const loadDay = useCallback((dayKey: number) => loadDays([dayKey]), [loadDays]);
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
@@ -1996,10 +2080,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   useEffect(() => {
     const trimmed = queryInput.trim();
     if (asciiDateTokens(trimmed) === query) return;
+    // カーソルの語が値の無いキー（候補で値を選んでいる途中）なら、まだ流さない（`isBareKey`）。**語全体で見る**——
+    // カーソルの手前だけで見ると、左の欄やパレットが検索語を `camera:"…"` へ差し替えたのにカーソルが古い位置に
+    // 残っていて、まだ `camera:` だと読んで流さなかった（PR #353 の codex）
+    const tk = tokenAt(queryInput, searchCaret);
+    if (isBareKey(queryInput.slice(tk.start, tk.end))) return;
     // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
     const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
     return () => window.clearTimeout(t);
-  }, [queryInput, query]);
+  }, [queryInput, query, searchCaret]);
 
   // フィルタ・検索クエリの変更で骨組みを読み込み直す（初回はマウント時のeffectが行う）
   const filterInitRef = useRef(true);
@@ -2172,8 +2261,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // バッファにためて150ms間隔でまとめて反映する（イベントの嵐でも再描画は最小限）
   const patchBuffer = useRef<MediaItem[]>([]);
   const patchTimer = useRef<number | null>(null);
+  /** 差分を当てる予約の時刻（`performance.now()`。早い予約へ詰めるため） */
+  const patchDue = useRef(0);
+  /** いま画面で頼んでいる写真（`visibleMissing`）。画面から去ったタイルの写真を降ろすとき、これは外す */
+  const visibleAskRef = useRef<ReadonlySet<number>>(new Set());
+  // 空のタイルの待ち合わせ（`gridThumbs.ts`）。働き手の知らせ（`media-updated`）で起こす
+  // 画面から去ったタイルの写真を降ろす。**いま画面で頼んでいる写真は外す**——同じ写真のタイルが作り直された・
+  // 上の「◯年前の今日」の帯に出ている（帯はタイルの待ち合わせを使わない。PR #356 の /code-review）
+  const [gridWaiters] = useState(
+    () =>
+      new BlankWaiters((ids) => {
+        const keep = visibleAskRef.current;
+        const drop = ids.filter((id) => !keep.has(id));
+        if (drop.length > 0) demoteThumbnails(drop).catch(() => {});
+      }),
+  );
   const applyPatches = useCallback(
     (patches: MediaItem[]) => {
+      // 待っている空のタイルを起こす（URL が変わらない終わり方でも問い直させる）。検索中に日が動いて下の差し替えが
+      // 当たらない写真も、id で起こすので問い直せる
+      gridWaiters.notify(patches.map((p) => p.id));
       // どの写真の差分をいつ当てたか（`reloadAll` が古い答えで引き戻さないように）。覚えるのはビューアで
       // 追う写真だけで足りるが、見分けるより全部書くほうが安い。表が育ちすぎたら古い回だけ捨てる——
       // 走っている読み直しが見るのは、それぞれが始めた回より後だけ。**いちばん古い読み直しの回より前**を
@@ -2240,7 +2347,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           }
           // 宛先の日が読み込み済みなのに載っていない（日付が移ってきた）:
           // その日を捨てて再取得させる
-          if (shown && arr && idx < 0) {
+          // 束が見えている間は、新しく入った写真（外からのコピー）で束を捨てない（1コマ空くので。PR #352）。
+          // 骨組みの取り直しで枚数がずれれば、描画の後の「見えている日」の処理が取り直す
+          if (
+            shown &&
+            arr &&
+            idx < 0 &&
+            !keepsWhileRefetching(p.day_key, UNREAD_DAY, visibleDaysRef.current, true)
+          ) {
             if (!next) next = new Map(prev);
             next.delete(p.day_key);
           }
@@ -2281,25 +2395,35 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    const flush = () => {
+      if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
+      patchTimer.current = null;
+      const patches = patchBuffer.current;
+      patchBuffer.current = [];
+      if (patches.length > 0) applyPatches(patches);
+    };
+    // `ms` 後に当てる。もう予約があって、それより早ければそのまま（遅い予約は早いほうへ詰める）
+    const schedule = (ms: number) => {
+      const due = performance.now() + ms;
+      if (patchTimer.current != null && patchDue.current <= due) return;
+      if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
+      patchDue.current = due;
+      patchTimer.current = window.setTimeout(flush, ms);
+    };
     listen<MediaItem>("media-updated", (ev) => {
       patchBuffer.current.push(ev.payload);
       // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
       // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）
       if (ev.payload.id === viewerItemIdRef.current || ev.payload.id === viewerHoldRef.current?.id) {
-        if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
-        patchTimer.current = null;
-        const patches = patchBuffer.current;
-        patchBuffer.current = [];
-        applyPatches(patches);
+        flush();
         return;
       }
-      if (patchTimer.current != null) return;
-      patchTimer.current = window.setTimeout(() => {
-        patchTimer.current = null;
-        const patches = patchBuffer.current;
-        patchBuffer.current = [];
-        applyPatches(patches);
-      }, 150);
+      // **空のタイルが待っている写真なら 32ms で当てる**（150ms まとめると、出来たサムネイルを頼み直すまで平均
+      // 約100ms 灰色のまま待った。win2 の内訳: 1枚の灰色 約220ms のうち約100ms）。起こすのは差し替えと同じ
+      // 描画で（`applyPatches`）——先に起こすと、タイルは古い URL・古い日で頼み直し、1枚を2回読んだり、撮影日が
+      // 動いた写真で頼み直しが回り続けた。次のコマ（rAF）にすると、最小化した窓では止まって知らせが溜まり続け、
+      // 動いていると1秒に60回一覧を組み直した（PR #356 の /code-review）。タイマーなら背景でも進み、約30回まで
+      schedule(gridWaiters.isWaited(ev.payload.id) ? 32 : 150);
     }).then((f) => {
       // クリーンアップが先に走っていたら即解除する（リスナーの取り残し防止）
       if (cancelled) {
@@ -2311,12 +2435,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     return () => {
       cancelled = true;
       unlisten?.();
-      if (patchTimer.current != null) {
-        window.clearTimeout(patchTimer.current);
-        patchTimer.current = null;
-      }
+      // 溜まった差分は捨てずに当てる（待っている空のタイルを起こし損ねない。PR #356 の /code-review）
+      flush();
     };
-  }, [applyPatches]);
+  }, [applyPatches, gridWaiters]);
 
   const onSync = useCallback(async () => {
     setBusy(true);
@@ -3570,6 +3692,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // **写真の少ない日を1行に並べる**（`packDays.ts`。並べるかは上の帯のボタンで切り替える）。
     // 右の帯には、並べた行を日ごとに開いて渡す（`dayRows`）ので、月の目盛りは欠けない
     const fits: DayFit[] = summary.map((day) => {
+      // 「読み込み中」の束は、ほかの日と1行に並べない（日付の行ではない）
+      if (day.day_key === UNREAD_DAY) return { dayKey: day.day_key, width: null };
       const stacks = packDays && dayItems.get(day.day_key) ? dayStacks.get(day.day_key) : undefined;
       if (!stacks || stacks.length === 0) return { dayKey: day.day_key, width: null };
       const photosWidth =
@@ -3683,8 +3807,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const days: number[] = [];
     const tops: number[] = [];
     const jumpTops: number[] = [];
+    // 末尾の「読み込み中」の束（日付ではない）が始まる所（`days` の番号と、その行の上端）。束が無ければ null
+    let railEnd: { n: number; top: number } | null = null;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      if (row.dayKey === UNREAD_DAY && railEnd === null) railEnd = { n: days.length, top: rowTops[i] };
       if (row.kind === "pack") {
         const h = rowTops[i + 1] - rowTops[i];
         row.segs.forEach((seg, k) => {
@@ -3700,12 +3827,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
     tops.push(rowTops[rows.length]);
     jumpTops.push(rowTops[rows.length]);
-    return { days, tops, jumpTops };
+    // 右の帯は**読めた写真の範囲だけ**を受け持つ。束の行を日付として渡すと、年 -1 の札・月のカードが出たり、何万枚もの
+    // 未読がいちばん古い月として帯を占めたりした（PR #351 の /code-review）。束へはホイールで行ける。
+    // **上端の日の留め置き（下の `anchoredScrollTop`）には束も含めて渡す**——束を外すと、束を見ている間に上の行の高さが
+    // 変わったとき、いちばん古い日へ留めようとして束の外へ跳ばされる（PR #351 の codex）。留め置きは日を一致で比べる
+    // だけで、日付として計算しない
+    const rail =
+      railEnd === null
+        ? { days, tops, jumpTops }
+        : {
+            days: days.slice(0, railEnd.n),
+            tops: [...tops.slice(0, railEnd.n), railEnd.top],
+            jumpTops: [...jumpTops.slice(0, railEnd.n), railEnd.top],
+          };
+    return { days, jumpTops, rail };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
     const m = new Map<number, number>();
     const add = (dayKey: number, count: number) => {
+      if (dayKey <= 0) return; // 「読み込み中」の束は月に数えない
       const k = Math.floor(dayKey / 100);
       m.set(k, (m.get(k) ?? 0) + count);
     };
@@ -3779,7 +3920,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
   }, [view, pendingScrollDay, rows, rowTops]);
 
+  /** 骨組みごとに、束の取り直しを頼んだか（同じ骨組みでは1回まで。`pickStaleDays`） */
+  const refetchedForRef = useRef<AskedFor<DaySummary[]>>({ summary: null, days: new Set() });
+
   const virtualItems = virtualizer.getVirtualItems();
+  /** 一覧のサムネイルの列（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる） */
+  const gridLoader = useTileLoader(scrollRef, view === "grid", GRID_TILE_READS, {
+    slotTimeoutMs: GRID_SLOT_TIMEOUT_MS,
+    coveredBy: null,
+  });
+  const [recentThumbs] = useState(() => new RecentThumbs());
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
@@ -3795,8 +3945,28 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    for (const dayKey of wanted) loadDay(dayKey);
-  }, [virtualItems, rows, loadDay]);
+    // 見えている「読み込み中の写真」の束の枚数がずれていたら、出したまま取り直す（上の `refreshSummary` で捨てない
+    // 代わり。同じ骨組みには1回、読み途中なら届いた後にまた見る。`staleDays.ts`）
+    if (visible.has(UNREAD_DAY)) {
+      const items = dayItems.get(UNREAD_DAY);
+      // 束は骨組みの最後に居る（並びの鍵が最も小さい）。全体を走査しない
+      const last = summary[summary.length - 1];
+      wanted.push(
+        ...pickStaleDays(
+          summary,
+          new Map(last?.day_key === UNREAD_DAY ? [[UNREAD_DAY, last.count]] : []),
+          new Map(items ? [[UNREAD_DAY, items.length]] : []),
+          [UNREAD_DAY],
+          null,
+          inflightRef.current,
+          refetchedForRef.current,
+        ),
+      );
+    }
+    // 1回の呼び出しにまとめる（見えている日と控えの日で分けると載せる回数が倍になり、帯を動かす間の描画が
+    // 重くなった。win2）
+    loadDays(wanted);
+  }, [virtualItems, rows, loadDays, summary, dayItems]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
@@ -3844,7 +4014,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 直近の答えが**返った時刻**。状態ではなく ref に置く（ゲート2の指摘）。
    *
    * 状態に混ぜると、**中身が同じでも聞き直すたびに新しいオブジェクトになり**、
-   * [`visibleMissingIds`] が作り直されて**可視領域の全idを送り直す**——
+   * [`visibleMissing`] が作り直されて**可視領域の全idを送り直す**——
    * 利用者が何もしていないのに、20秒ごとに `get_by_id` が100件超。
    * 時刻は**読むときにしか要らない**ので、再計算を誘発しない置き場が正しい
    */
@@ -3910,7 +4080,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           const drop = new Set(cloud);
           const local = asked.filter((id) => !drop.has(id));
           // **古びたまま同じ答えが返ったら、作り直して再計算を起こす**（ゲート2の指摘）。
-          // 同じ顔ぶれで `prev` を返すと React は描き直さず、[`visibleMissingIds`] の
+          // 同じ顔ぶれで `prev` を返すと React は描き直さず、[`visibleMissing`] の
           // memo も依存が変わらないので**寿命を読み直さない**。往復が寿命を越えた回に
           // 画面が動いていると、**帯を外したまま固まる**——ref の時刻だけ新しくなって、
           // 誰もそれを見ない。**古びていた回だけ**新しい集合にすればよく、
@@ -3971,15 +4141,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     };
   }, [bandPendingKey, view, filtering]);
 
+  // 差し替え（`applyPatches`）が写真を新しい日へ動かす表示か。検索中・送り出しは動かさないので、日で古さを
+  // 見分けない（タイルの `day` も、`set_visible_priority` の `days` も。見分けると、動かないまま灰色で残る）
+  const patchesMoveDays = askedRef.current.query === "" && filter !== "outgoing";
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
-  const visibleMissingIds = useMemo(() => {
+  const visibleMissing = useMemo(() => {
     const ids: number[] = [];
+    // それぞれを並べていた日。撮影日が読まれて別の日へ移った写真は Rust が頼まない（新しいライブラリで、
+    // 画面から去った写真の本番を作らない）
+    // 帯（`memories`）の写真は日が動いても差し替わらないので null（見ない）
+    const days: (number | null)[] = [];
     const seen = new Set<number>();
     // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
-    const want = (item: MediaItem) => {
+    const want = (item: MediaItem, checkDay = true) => {
       if (item.thumb_state >= 2 || seen.has(item.id)) return;
       seen.add(item.id);
       ids.push(item.id);
+      days.push(checkDay && patchesMoveDays ? item.day_key : null);
     };
     // **帯は `rows` に居ない。** 「3年前の今日」は `memories` として別に描いて
     // いるので、下の `rows` を歩くだけでは生成を頼まないまま**灰色の四角が残る**。
@@ -3993,7 +4171,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       Date.now() - bandAnswerAtRef.current <= CLOUD_ANSWER_TTL_MS;
     if (view === "grid" && !filtering && bandFresh) {
       for (const m of memories) {
-        if (bandAskableIds.has(m.item.id)) want(m.item);
+        if (bandAskableIds.has(m.item.id)) want(m.item, false);
       }
     }
     for (const vr of virtualItems) {
@@ -4001,15 +4179,18 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row?.kind === "cells") for (const cell of row.cells) want(cell.item);
       else if (row?.kind === "pack") for (const seg of row.segs) for (const cell of seg.cells) want(cell.item);
     }
-    return ids;
-  }, [virtualItems, rows, memories, view, filtering, bandAskableIds]);
+    return { ids, days };
+  }, [virtualItems, rows, memories, view, filtering, bandAskableIds, patchesMoveDays]);
+  useLayoutEffect(() => {
+    visibleAskRef.current = new Set(visibleMissing.ids);
+  }, [visibleMissing]);
   useEffect(() => {
-    if (visibleMissingIds.length === 0) return;
+    if (visibleMissing.ids.length === 0) return;
     const t = window.setTimeout(() => {
-      setVisiblePriority(visibleMissingIds).catch(() => {});
+      setVisiblePriority(visibleMissing.ids, visibleMissing.days).catch(() => {});
     }, 150);
     return () => window.clearTimeout(t);
-  }, [visibleMissingIds]);
+  }, [visibleMissing]);
 
   // 詳細ビューア: 位置 {dayKey, id} を実レコードへ解決する
   const viewerInfo = useMemo(() => {
@@ -8320,15 +8501,97 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             type="search"
             placeholder={t.searchPlaceholder}
             id="pk-search" data-testid="search"
+            ref={searchInputRef}
             value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
+            role="combobox"
+            aria-expanded={searchSuggestions.length > 0}
+            aria-controls="pk-search-suggest"
+            aria-autocomplete="list"
+            aria-activedescendant={suggestActive >= 0 ? `pk-search-suggest-${suggestActive}` : undefined}
+            onChange={(e) => {
+              setQueryInput(e.target.value);
+              setSearchCaret(e.target.selectionStart ?? e.target.value.length);
+              setSuggestActive(-1);
+              setSuggestOpen(true);
+            }}
+            onSelect={(e) => setSearchCaret((e.target as HTMLInputElement).selectionStart ?? 0)}
+            onBlur={() => setSuggestOpen(false)}
             onKeyDown={(e) => {
+              // 日本語入力の変換中は、↑↓・Enter・Esc は変換の操作。候補で横取りしない
+              // macOS の WebView は確定の Enter の前に変換を終えるので `isComposing` だけでは足りない（Palette.tsx と同じ）
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              const list = searchSuggestions;
+              if (list.length > 0) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const step = e.key === "ArrowDown" ? 1 : -1;
+                  // 選んでいない（-1）→ 先頭 → … → 末尾 → 選んでいない、を巡る
+                  setSuggestActive((i) => {
+                    const next = i + step;
+                    if (next >= list.length) return -1;
+                    if (next < -1) return list.length - 1;
+                    return next;
+                  });
+                  return;
+                }
+                // Tab と Enter は、↑↓ で行を選んでいるときだけ差し込む。選んでいなければ今までどおり（Tab は欄を出る、
+                // Enter は検索）——1〜2文字打って Tab で出ようとした人の語を、キーへ置き換えてしまった（PR #353 の /code-review）
+                if (e.key === "Tab" && !e.shiftKey && suggestActive >= 0) {
+                  e.preventDefault();
+                  pickSuggestion(list[suggestActive]);
+                  return;
+                }
+                if (e.key === "Enter" && suggestActive >= 0) {
+                  e.preventDefault();
+                  pickSuggestion(list[suggestActive]);
+                  return;
+                }
+                // Esc は候補だけを閉じる（手前の幕が取る）。もう一度押せば今までどおり欄を空にする
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSuggestOpen(false);
+                  setSuggestActive(-1);
+                  return;
+                }
+              }
               if (e.key === "Escape") {
                 setQueryInput("");
                 (e.target as HTMLInputElement).blur();
               }
             }}
           />
+          {searchSuggestions.length > 0 && (
+            <ul className="search-suggest" id="pk-search-suggest" data-testid="search-suggest" role="listbox">
+              {searchSuggestions.map((s, i) => (
+                <li
+                  key={s.insert}
+                  id={`pk-search-suggest-${i}`}
+                  role="option"
+                  aria-selected={i === suggestActive}
+                  className={i === suggestActive ? "active" : ""}
+                  // 押しても欄から焦点を外さない（外すと閉じてしまう）
+                  onMouseDown={(e) => e.preventDefault()}
+                  // マウスを乗せても「選んでいる行」は動かさない（キーで選んだ行を奪わない。乗せた行は薄い面だけ＝App.css）。
+                  // 押せばその行を差し込む
+                  onClick={() => pickSuggestion(s)}
+                >
+                  {/* 名前の枠は左から右（長い名前は尻尾の側を省略する——頭のメーカー名を残す）。右から左の画面では右へ寄せて、
+                      行の頭（右）に置く（App.css。デザインの統一性チェック 3 周目） */}
+                  <span className="search-suggest-main" dir="ltr">
+                    {s.type === "key" ? s.insert : s.type === "year" ? String(s.year) : s.type === "camera" ? s.name : s.kind}
+                  </span>
+                  <span className="search-suggest-hint">
+                    {s.type === "key"
+                      ? t.searchKeyHint[s.key]
+                      : s.type === "kind"
+                        ? { photo: t.kindPhoto, raw: t.kindRaw, video: t.kindVideo }[s.kind]
+                        : t.photosCount(s.count)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           {queryInput ? (
             <button
               className="search-clear"
@@ -8413,7 +8676,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           {status}
         </span>
         {/* 裏で走っている仕事（dev #64）。取り込みの面を開いている間は黙る */}
-        <BackgroundWork quiet={wizardOpen} />
+        <BackgroundWork
+          quiet={wizardOpen}
+          onOpenSettings={() => {
+            setSettingsFocus("thumbnails");
+            openSettingsRef.current();
+          }}
+          onError={fail}
+        />
         <span className={"count" + (query ? " searching" : "")}>
           {query && <Icon name="search" className="btn-icon" />}
           {t.itemsCount(totalShown)}
@@ -8944,21 +9214,27 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           ) : (
             <div className="grid-wrap">
               {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
+              {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の数秒）は帯を出さない——日付の範囲が無い */}
+              {dayRows.rail.days.length > 0 && (
               <ScrubRail
                 scrollRef={scrollRef}
-                rowTops={dayRows.tops}
-                dayKeys={dayRows.days}
-                jumpTops={dayRows.jumpTops}
+                rowTops={dayRows.rail.tops}
+                dayKeys={dayRows.rail.days}
+                jumpTops={dayRows.rail.jumpTops}
                 monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
                   const el = scrollRef.current;
                   // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
-                  if (el) el.scrollTop = Math.min(dayRows.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
+                  if (el) el.scrollTop = Math.min(dayRows.rail.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
-              <div className="grid-scroll" ref={scrollRef}>
+              )}
+              {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の1〜2秒）だけ、ふつうのスクロールバーを出す——帯が
+                  無い。束がある間ずっと出すと、帯の下に隠れて掴めず、Windows では出入りのたびに幅が変わって一覧が
+                  並べ直された（PR #351 の /code-review） */}
+              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。
@@ -9035,28 +9311,20 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 });
                               }}
                             >
-                              <img
-                                ref={revealIfPainted}
-                                className="cell"
-                                loading="lazy"
-                                decoding="async"
-                                src={thumbSrc(cell.item)}
-                                // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
-                                // 「サムネイルが無い」の見た目なので、隠したままにしない
-                                onLoad={revealThumb}
-                                onError={revealThumb}
-                                // サムネイル未生成のHEIC/RAWや、まだ手元に無い
-                                // クラウド上のファイルは配信されない（404）。
-                                // `alt` 未指定だと Chromium は title を代替テキストとして
-                                // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
-                                // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
-                                alt=""
-                                // **絵をボタンとして、ファイル名で名乗る**（UI Automation では名前の無い Group だった。
-                                // pictkura-dev #65）。タイル全体をボタンにすると、中の「選択」や重ねの印のボタンが
-                                // 読み上げから潰れる（ゲート2）。押すとタイルの onClick へ上がる。Tab では止めない
-                                // ——一覧には自分のキー操作がある
-                                role="button"
-                                aria-label={cell.item.file_name}
+                              <GridThumb
+                                // サムネイルがあればすぐ読む。まだ無い写真（原本を読む）は列で読む（`gridThumbs.ts`。同時に4枚、
+                                // 見えているものから、外れたら捨てる）
+                                url={thumbSrc(cell.item)}
+                                // 即席（1）か本番（2）があるときだけ。作らない写真（SVG・プレビューの無い RAW）は列で読む
+                                ready={cell.item.thumb_state === 1 || cell.item.thumb_state === 2}
+                                quick={cell.item.thumb_state === 1}
+                                label={cell.item.file_name}
+                                loader={gridLoader}
+                                recent={recentThumbs}
+                                waiters={gridWaiters}
+                                id={cell.item.id}
+                                day={patchesMoveDays ? cell.item.day_key : undefined}
+                                onDone={revealThumb}
                               />
                               {cell.item.is_video && (
                                 <span className="cell-video">
@@ -10226,6 +10494,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       />
       <SettingsDialog
         open={settingsOpen}
+        focusSection={settingsFocus}
         // **関所が立ったら畳ませる**（2026-09-08）。開けない向きは
         // [`openSettingsBySecondDoor`] が見ているが、**逆向きがある**——
         // **設定を開いたまま窓の × を押す**と、✕の印が残っていれば関所が立つ。

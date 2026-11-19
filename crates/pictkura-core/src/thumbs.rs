@@ -238,7 +238,7 @@ fn gps_coord(exif: &exif::Exif, coord: Tag, reference: Tag) -> Option<f64> {
 pub fn read_exif_info(path: &Path) -> ExifInfo {
     if let Ok(file) = std::fs::File::open(path) {
         let mut reader = BufReader::new(file);
-        if let Ok(exif) = exif::Reader::new().read_from_container(&mut reader) {
+        if let Ok(exif) = parse_exif_container(&mut reader) {
             return exif_info_from(&exif);
         }
     }
@@ -247,7 +247,7 @@ pub fn read_exif_info(path: &Path) -> ExifInfo {
     // それぞれ読んで合成する（機種はCMT1、撮影パラメータはCMT2…）
     let mut info = ExifInfo::default();
     for block in crate::raw::bmff_metadata_blocks(path).unwrap_or_default() {
-        let Ok(exif) = exif::Reader::new().read_raw(block) else {
+        let Ok(exif) = read_exif_raw(block) else {
             continue;
         };
         let part = exif_info_from(&exif);
@@ -739,7 +739,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         let blocks = crate::raw::bmff_metadata_blocks(path);
         readable = readable && blocks.is_some();
         for block in blocks.unwrap_or_default() {
-            let Ok(exif) = exif::Reader::new().read_raw(block) else {
+            let Ok(exif) = read_exif_raw(block) else {
                 continue;
             };
             let from_block = exif_data_from(&exif);
@@ -808,6 +808,122 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     (result, readable)
 }
 
+/// EXIF を読む（入れ物ごと）。[`tolerate_stray_next_ifd`] を見よ
+pub fn parse_exif_container<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+) -> Result<exif::Exif, exif::Error> {
+    tolerate_stray_next_ifd(
+        exif::Reader::new()
+            .continue_on_error(true)
+            .read_from_container(reader),
+    )
+}
+
+/// EXIF を読む（TIFF の並び）。[`tolerate_stray_next_ifd`] を見よ
+pub fn read_exif_raw(data: Vec<u8>) -> Result<exif::Exif, exif::Error> {
+    tolerate_stray_next_ifd(exif::Reader::new().continue_on_error(true).read_raw(data))
+}
+
+/// **子 IFD（Exif・GPS・Interop）の「次の IFD」の欄が 0 でない EXIF だけは受け取る。**
+///
+/// 規格では子 IFD の次は 0 だが、piexif などの道具はこの欄にデータを置く。kamadak-exif は
+/// `Unexpected next IFD` で**EXIF を丸ごと**拒むので、向き・撮影日時・埋め込みサムネイルが全部落ちていた
+/// （win2 の試験データ、2026-11-18。ブラウザと PIL は読む）。子 IFD の中身はこの誤りの前に読み終えている
+/// （kamadak の `parse_child_ifd`）ので、誤りを集めて続けた結果はそのまま使える。
+///
+/// **ほかの誤りが 1 つでも混じれば、これまでどおり読まない**——許す形を広げると、壊れた EXIF から
+/// でたらめな日付や向きを拾う。返す誤りは、そのまま読んだときに返ったものと同じ（最初の誤り）。
+///
+/// 子 IFD へのポインタが**よその IFD を指している**壊れ方でも、同じ誤りだけが出ることがある（指した先が
+/// IFD0 なら、その次は IFD1 で 0 でない）。そのとき読まれる項目は**子の文脈のタグ**として入る（IFD0 の
+/// 向き 0x0112 は Exif 文脈では別のタグ）ので、こちらが引く撮影日時・寸法の申告・シリアル（Exif 文脈の番号）
+/// には当たらない。偶然その番号の項目が並ぶ形まで拒む手立ては無く、そこは受け入れる（PR #349 の /code-review）。
+/// 誤りの見分けは kamadak の文言に頼る——版を上げて文言が変わると許しが黙って外れるが、試験の対照
+/// （そのままの読み手がこの形を `Unexpected next IFD` で拒むこと）が落ちて気付ける
+fn tolerate_stray_next_ifd(
+    result: Result<exif::Exif, exif::Error>,
+) -> Result<exif::Exif, exif::Error> {
+    match result {
+        Err(exif::Error::PartialResult(partial)) => {
+            let (exif, errors) = partial.into_inner();
+            if errors.iter().all(is_stray_next_ifd) {
+                Ok(exif)
+            } else {
+                Err(errors
+                    .into_iter()
+                    .next()
+                    .unwrap_or(exif::Error::InvalidFormat("partial result")))
+            }
+        }
+        other => other,
+    }
+}
+
+/// **前の版で EXIF を丸ごと拒んでいた JPEG を探して、読み直しへ回す**（一度きり。呼ぶ側が済んだ印を持つ）。
+///
+/// [`tolerate_stray_next_ifd`] より前の版は、子 IFD の「次の IFD」の欄が 0 でない EXIF を読めず、向き・撮影日時・
+/// 埋め込みサムネイルを落として行に記録した。ファイルは変わっていないので、走査は読み直さない（PR #349 の
+/// /code-review）。JPEG のうち、**厳密な読み手がこの誤りで拒み、今の読み手が読めるもの**だけを、中身が
+/// 変わった行と同じに空にする（回っていない向きで作ったサムネイルも外れる）。候補を行の状態で絞らないのは
+/// [`Db::exif_container_rows`] を見よ。読むのは EXIF の頭だけ（一度きり）。
+///
+/// クラウドにしか無いファイルは開かない（開くとダウンロードが走る）。読み直しが要る id を返す
+pub fn reread_stray_exif(
+    db: &mut Db,
+    is_cloud_only: &dyn Fn(&Path) -> bool,
+    only: Option<&[i64]>,
+) -> Result<StrayReread, DbError> {
+    let candidates: Vec<(i64, std::path::PathBuf)> = match only {
+        None => db.exif_container_rows()?,
+        Some(ids) => ids
+            .iter()
+            .filter_map(|&id| db.get_by_id(id).ok().flatten().map(|r| (id, r.path)))
+            .collect(),
+    };
+    let mut out = StrayReread::default();
+    for (id, path) in candidates {
+        // 開けない（クラウドにしか無い・ドライブが外れている）写真は保留にする。呼ぶ側が、次の起動でこれだけを
+        // 見直す（PR #349 の /code-review: 保留を捨てると、ファイルが変わらない限り二度と直らない）
+        if is_cloud_only(&path) {
+            out.deferred.push(id);
+            continue;
+        }
+        let Ok(file) = std::fs::File::open(&path) else {
+            out.deferred.push(id);
+            continue;
+        };
+        // 1回の読みで「そのままの読み手はこの誤りで拒み、今の読み手は読む」かを見る: 誤りを集めて続けた結果、
+        // 集まった誤りがこの1種類だけ（そのままの読み手が返すのは最初の誤り＝これ）
+        let read = exif::Reader::new()
+            .continue_on_error(true)
+            .read_from_container(&mut BufReader::new(file));
+        if let Err(exif::Error::PartialResult(partial)) = read {
+            let (_, errors) = partial.into_inner();
+            if !errors.is_empty() && errors.iter().all(is_stray_next_ifd) {
+                out.reset.push(id);
+            }
+        }
+    }
+    if !out.reset.is_empty() {
+        db.reset_for_reread(&out.reset)?;
+    }
+    Ok(out)
+}
+
+/// [`reread_stray_exif`] の結果
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct StrayReread {
+    /// 読み直しへ回した（行を空にした）id
+    pub reset: Vec<i64>,
+    /// 開けなかったので見ていない id（クラウドにしか無い・開けない）
+    pub deferred: Vec<i64>,
+}
+
+/// kamadak-exif の「子 IFD の次の IFD の欄が 0 でない」誤りか（[`tolerate_stray_next_ifd`]）。見分けは文言に頼る
+fn is_stray_next_ifd(e: &exif::Error) -> bool {
+    matches!(e, exif::Error::InvalidFormat("Unexpected next IFD"))
+}
+
 /// 先頭ぶんだけを渡されたTIFFを読む。
 ///
 /// [`crate::raw::patched_tiff_metadata`] はファイルの先頭しか返さないので、
@@ -874,7 +990,7 @@ fn preview_exif_may_fill(result: &ExifData) -> bool {
 /// カメラが書いたJPEGなので、入っている値は実体と同じもの。
 fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
     let mut cursor = std::io::Cursor::new(preview);
-    let Ok(exif) = exif::Reader::new().read_from_container(&mut cursor) else {
+    let Ok(exif) = parse_exif_container(&mut cursor) else {
         return;
     };
     let from_preview = exif_data_from(&exif);
@@ -947,8 +1063,9 @@ pub(crate) const EXIF_TIFF_HEADS_FOR_PICTURES: [u64; 1] = [1 << 20];
 /// [`read_exif_container`] の本体。読み手を外から渡せるのは、**どこまで読んだか**を
 /// テストが数えるため。
 ///
-/// TIFFは `heads` の段の先頭だけで**厳密に**（`continue_on_error` なしで）
-/// パースし、通ればそれを使う。**全体を読んだときと同じ答えになる**: パーサは
+/// TIFFは `heads` の段の先頭だけで**厳密に**パースし、通ればそれを使う。厳密とは、
+/// 誤りを1つでも出せば通さないこと——許すのは子 IFD の「次の IFD」の誤りだけで（[`read_exif_raw`]）、
+/// これは位置ではなく形の誤りなので、先頭だけでも全体でも同じに出る。**全体を読んだときと同じ答えになる**: パーサは
 /// 申告された位置しか読まず、1つでも範囲の外を指せば失敗する。先頭で通ったという
 /// ことは、全体で読んでも同じバイトを同じ順に読む。通らなければ残りを読み足して
 /// 従来と同じ全体のパースへ進む（失敗の形も従来どおり）。段の途中で通らなければ、
@@ -1016,7 +1133,7 @@ fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
     };
     let whole = |exif| (exif, true);
     if !is_tiff {
-        return exif::Reader::new().read_from_container(reader).map(whole);
+        return parse_exif_container(reader).map(whole);
     }
     let mut head = Vec::with_capacity(heads.last().copied().unwrap_or(0) as usize);
     // 日付まで読めたのに切手だけが外れた段。残りを読む途中で落ちたら、これを
@@ -1031,9 +1148,9 @@ fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
         }
         // 段より短い＝ファイルを読み切った。従来どおり全体としてパースする
         if (head.len() as u64) < step {
-            return exif::Reader::new().read_raw(head).map(whole);
+            return read_exif_raw(head).map(whole);
         }
-        match exif::Reader::new().read_raw(head.clone()) {
+        match read_exif_raw(head.clone()) {
             Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => return Ok((exif, true)),
             Ok(exif) => without_thumbnail = Some(exif),
             Err(_) => {}
@@ -1041,7 +1158,7 @@ fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
     }
     // どの段でも通らなかった。残りを読み足して全体をパースする
     match reader.read_to_end(&mut head) {
-        Ok(_) => exif::Reader::new().read_raw(head).map(whole),
+        Ok(_) => read_exif_raw(head).map(whole),
         Err(e) => partial(without_thumbnail, e),
     }
 }
@@ -1438,6 +1555,8 @@ pub enum ThumbOutcome {
     Provisional,
     /// 高品質サムネイルまで生成完了
     Final,
+    /// 前もって作る仕事（[`Job::Pregen`]）が来たときには、もう本番があった（見えたタイルが先に作った）。何もしていない
+    AlreadyBuilt,
 }
 
 /// サムネイルの保存先。`thumbs/{id % 256}/{id}.<ext>` に分散配置し、
@@ -1500,6 +1619,193 @@ fn sweep_partial_thumbs(thumbs_dir: &Path) {
             }
         }
     }
+}
+
+/// **持ち主の居ないサムネイルを消す。** 写真を消す（ゴミ箱へ・外で消した・フォルダを外した）と DB の行は消えるが、
+/// サムネイルのファイルは残っていた。どこからも数えられないので、置き場の上限（`thumb_cache_mb`）の管理からも
+/// 外れ、ディスクを使い続けた（2026-11-18 利用者「対象ファイル実体を消したら一緒に削除するんだっけ？」）。
+/// 行を消す道は多い（走査・監視・ゴミ箱・ルートを外す・パスの正規化）ので、道ごとに消すのでなく、置き場の側から
+/// 突き合わせる。
+///
+/// 消すのは `{2桁の16進}/{id}.{拡張子}` の形のファイルで、その id の行が無いか、行のサムネイルが別の名前
+/// （作り直して拡張子が変わった古い方）のものだけ。
+/// - **名前で突き合わせる**（パス全体ではない）。データのフォルダを動かしたポータブル版では、記録のパスの頭が
+///   今の置き場と違う。パスで比べると、全部を孤児と見て消してしまう
+/// - **新しいファイルは消さない**（`min_age`）。[`publish_thumb`] は記録を書いてから付け替え、その後で確定する
+///   ——付け替えから確定までの間、ほかの接続からは記録が見えない
+/// - **作業中の id は消さない**（`active`）。一時ファイル（[`PARTIAL_MARK`]）と形の違う名前には触らない
+///
+/// 返り値は（消した数, 見送った数）。見送ったのは、新しすぎる・作業中・消せなかった候補——呼ぶ側は、見送りが
+/// 0 になるまで「済んだ」としない（PR の codex）
+pub fn sweep_orphan_thumbs(
+    db: &Db,
+    thumbs_dir: &Path,
+    min_age: std::time::Duration,
+    is_active: &dyn Fn(i64) -> bool,
+) -> Result<(usize, usize), DbError> {
+    let known = db.thumb_file_names()?;
+    let now = std::time::SystemTime::now();
+    // 候補: 行が無い・行のサムネイルが別の名前のファイル。置き場の直下（古い平らな置き方）と、`id % 256` の
+    // 2桁の16進のフォルダの中だけを見る（違うフォルダに居る同じ名前は、行があっても誰も読まないので候補）
+    let mut candidates: Vec<(i64, std::fs::DirEntry)> = Vec::new();
+    let mut look = |entry: std::fs::DirEntry, bucket: Option<&str>| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.contains(PARTIAL_MARK) {
+            return;
+        }
+        let Some(id) = name
+            .split_once('.')
+            .and_then(|(stem, _)| stem.parse::<i64>().ok())
+        else {
+            return;
+        };
+        let in_its_bucket = bucket.is_none_or(|b| b == format!("{:02x}", (id % 256) as u8));
+        if in_its_bucket && known.get(&id).is_some_and(|n| *n == name) {
+            return;
+        }
+        candidates.push((id, entry));
+    };
+    let Ok(top) = std::fs::read_dir(thumbs_dir) else {
+        return Ok((0, 0));
+    };
+    for entry in top.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_file() {
+            look(entry, None);
+            continue;
+        }
+        let bucket = entry.file_name().to_string_lossy().into_owned();
+        if bucket.len() != 2 || !bucket.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let Ok(files) = std::fs::read_dir(entry.path()) else {
+            continue;
+        };
+        for f in files.flatten() {
+            look(f, Some(&bucket));
+        }
+    }
+    let mut removed = 0;
+    let mut deferred = 0;
+    for (id, entry) in candidates {
+        let old_enough = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age >= min_age);
+        if !old_enough {
+            deferred += 1;
+            continue;
+        }
+        // **消す直前に確かめ直す**（上の一覧は歩き始めの写し）。歩いている間に働き手が同じ名前で作り直して
+        // 記録していれば、それは使われている絵（/code-review）。作業中なら触らない
+        if is_active(id) {
+            deferred += 1;
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        let at_home = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|b| b.to_string_lossy().into_owned())
+            == Some(format!("{:02x}", (id % 256) as u8));
+        if at_home && db.thumb_file_name(id)?.is_some_and(|n| n == name) {
+            continue;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => deferred += 1,
+        }
+    }
+    Ok((removed, deferred))
+}
+
+/// 捨てるサムネイルの控え（DB の `thumb_trash`）を片付ける。消すのは、その名前をどの行も使っていない
+/// ファイルだけ——控えた後で同じ名前に作り直された（回した写真の作り直し）なら、ファイルは残して控えだけ外す。
+/// 作業中の id は次の回へ回す。記録のパスの頭ではなく、今の置き場で名前を引く（データのフォルダを動かした
+/// ポータブル版）。返り値は消したファイルの数
+pub fn drain_thumb_trash(
+    db: &mut Db,
+    thumbs_dir: &Path,
+    limit: usize,
+    is_active: &dyn Fn(i64) -> bool,
+) -> Result<usize, DbError> {
+    let mut done = Vec::new();
+    let mut removed = 0;
+    // 見送った控えも片付けた控えも、外すのは最後なので表に残っている。読んだ数だけ先へ進む（先頭が作業中ばかり
+    // でも、後ろが詰まらない）
+    let mut offset = 0;
+    'pages: while done.len() < limit {
+        let batch = db.thumb_trash_batch(limit, offset)?;
+        if batch.is_empty() {
+            break;
+        }
+        offset += batch.len();
+        for (recorded, id, _queued_ms) in batch {
+            if is_active(id) {
+                continue;
+            }
+            let recorded_path = Path::new(&recorded);
+            let Some(name) = recorded_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+            else {
+                done.push(recorded);
+                continue;
+            };
+            // 置き場の中の場所: `{2桁の16進}/{名前}`、古い平らな置き方なら直下
+            let bucket = recorded_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|b| b.to_string_lossy().into_owned())
+                .filter(|b| b.len() == 2 && b.chars().all(|c| c.is_ascii_hexdigit()));
+            let here = match &bucket {
+                Some(b) => thumbs_dir.join(b).join(&name),
+                None => thumbs_dir.join(&name),
+            };
+            // **書き手の順番を持ったまま確かめて消す**（PR の codex）。付け替えは書き手の順番の中で「記録→付け替え→
+            // 確定」をするので、この中では付け替えの途中と入れ違わない: 見えるのは付け替えの前（古いファイル）か、
+            // 確定した後（行がその名前を持つ＝使っている）のどちらか
+            enum Outcome {
+                Done(bool),
+                Keep,
+            }
+            let outcome = db.holding_write_lock(|db| {
+                let in_use = bucket.is_some()
+                    && db
+                        .thumb_file_name(id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|n| n == name);
+                if in_use {
+                    return Outcome::Done(false);
+                }
+                match std::fs::remove_file(&here) {
+                    Ok(()) => Outcome::Done(true),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Outcome::Done(false),
+                    // 消せなかった（Windows で開かれている・置き場の媒体が外れた）。控えは残して次の回に試す——外すと
+                    // 二度と拾わない（PR の codex）
+                    Err(_) => Outcome::Keep,
+                }
+            })?;
+            match outcome {
+                Outcome::Done(deleted) => removed += usize::from(deleted),
+                Outcome::Keep => continue,
+            }
+            done.push(recorded);
+            if done.len() >= limit {
+                break 'pages;
+            }
+        }
+    }
+    db.thumb_trash_done(&done)?;
+    Ok(removed)
 }
 
 /// 一時ファイルに書いたサムネイルを、**行がまだ同じ版のときだけ**本当の名前へ付け替えて記録する（F1）。
@@ -1697,7 +2003,25 @@ pub fn process_one(
     id: i64,
     want_final: bool,
 ) -> Result<ThumbOutcome, ThumbError> {
+    let job = if want_final { Job::Visible } else { Job::Auto };
+    process_one_job(db, thumbs_dir, thumb_size, id, job)
+}
+
+/// [`process_one`] を仕事の種類で呼ぶ。[`Job::Pregen`] は本番まで作るが、クラウドにしか無いファイルは開かない
+pub fn process_one_job(
+    db: &mut Db,
+    thumbs_dir: &Path,
+    thumb_size: u32,
+    id: i64,
+    job: Job,
+) -> Result<ThumbOutcome, ThumbError> {
+    let want_final = job != Job::Auto;
     let record = db.get_by_id(id)?.ok_or(ThumbError::NotFound(id))?;
+    // 配り手が候補を読んでから、見えたタイルが先に本番を作った。作り直さない——作り直すと、利用者が見た絵を
+    // 「まだ見ていない」に戻してしまう（上限で先に消える。PR #348 の /code-review）
+    if job == Job::Pregen && record.thumb_state >= 2 {
+        return Ok(ThumbOutcome::AlreadyBuilt);
+    }
     let src = &record.path;
 
     // 実体がクラウドにしか無いファイルは、**開いた瞬間にダウンロードが走る**。
@@ -1713,7 +2037,8 @@ pub fn process_one(
     // 同期クライアント経由のmtimeは撮影日に近いことが多く実害は小さいが、
     // これを消すにはファイルを開かずにサムネイルを得る経路
     //（WindowsのShellサムネイル）が要る。plan.md 第7部の未着手に置いた
-    if !want_final && crate::cloud::is_cloud_only_path(src) {
+    // 前もって作る仕事（[`Job::Pregen`]）も開かない——利用者はまだ見ていない（2026-11-18 利用者）
+    if job != Job::Visible && crate::cloud::is_cloud_only_path(src) {
         // 絵は諦めるが、**素性はOSが持っている**（段階H）。同期クライアントが
         // 置いたぶんだけが返るので、ここで問い合わせても
         // 1バイトも落ちない（根拠は `shell::metadata` の説明。長さだけが
@@ -1906,7 +2231,8 @@ pub fn process_one(
     // JPEGではないのでバイト列のままでは使えないが、小さいまま展開すれば
     // 主画像を展開するより速い（実測 148ms 対 455ms）。
     // 展開済みなので再エンコードは避けられず、そのままWebPで書く
-    if record.thumb_state == 0 && is_heif {
+    // 前もって作る仕事は即席を飛ばして本番へ（即席を書いて返すと、同じファイルを次の周でもう一度開いて解く）
+    if record.thumb_state == 0 && is_heif && job != Job::Pregen {
         if let Some(img) = crate::heif::decode_thumbnail(src) {
             let webp_path = thumb_path_for(thumbs_dir, id, "webp");
             ensure_parent(&webp_path)?;
@@ -1923,7 +2249,7 @@ pub fn process_one(
 
     // 段階1: まだサムネイルが無ければ、埋め込みサムネイルを即席として書き出す（爆速パス）。
     // EXIF埋め込みJPEGは再エンコードせずそのまま書く（デコード回避）ため拡張子はjpg
-    if record.thumb_state == 0 && !is_raw && !is_heif {
+    if record.thumb_state == 0 && !is_raw && !is_heif && job != Job::Pregen {
         if let Some(bytes) = &exif_data.thumbnail {
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
@@ -2031,6 +2357,10 @@ pub const THUMB_STATE_NO_PREVIEW: i64 = 4;
 /// フルデコード失敗を延々繰り返すため、セッション内で見切りをつける。
 const MAX_FAILURES: u32 = 3;
 
+/// 優先の列（原寸を解いて本番を作る仕事）の長さの上限。画面と前後の控え（4K のいちばん小さいタイルで数百枚）は
+/// 収まり、帯を速く送ったときの通り過ぎた写真は残さない長さ
+const PRIORITY_MAX: usize = 512;
+
 /// 可視領域優先のジョブキュー。
 struct QueueState {
     /// 優先ジョブ（可視領域のID）。先頭から処理され、高品質生成まで行う
@@ -2046,6 +2376,17 @@ struct QueueState {
     failures: HashMap<i64, u32>,
     /// **新しく読む写真**（まだサムネイルの無い行）として積まれた id。済んだら外す（pictkura-dev #64 の「残り n枚」）
     fresh: HashSet<i64>,
+    /// **前もって作る列**（設定「サムネイルを自動生成」）。いちばん後ろ——優先の列も自動の列も空のときだけ取る
+    pregen: VecDeque<i64>,
+    /// 前もって作る仕事のうち処理中の id。同時に走らせる数を [`QueueState::pregen_limit`] までに抑える
+    /// （働き手を全部取ると、見えたタイルの仕事が1枚ぶん待たされる）
+    pregen_running: HashSet<i64>,
+    pregen_limit: usize,
+    /// 前もって作ろうとして作らなかった id（クラウドにしか無い・絵が無い・失敗）。この起動の間は配り直さない
+    pregen_skip: HashSet<i64>,
+    /// 画面から去ったので優先の列から自動の列へ降ろした id（[`ThumbQueue::demote`]）。読み終えた写真なので、また
+    /// 見えたら優先の列へ戻す（自動の列に居ても「未読」とは見なさない）。取り出されたら外す
+    demoted: HashSet<i64>,
     shutdown: bool,
 }
 
@@ -2103,6 +2444,28 @@ fn finish_job(
     }
 }
 
+/// 前もって作った仕事の後始末（[`Job::Pregen`]）。
+///
+/// - 本番ができた: 「まだ見ていない」にする（上限を超えたら、見た絵より先に消える）
+/// - 即席だけ書いた・作業中に行が変わった: 何もしない。行はまだ本番が無いので、配り手の次の周がもう一度配る。
+///   **即席を「見送り」にしてはいけない**——サムネイルの無い行（「作り直す」の後・上限で消えた後）は、埋め込みの
+///   サムネイルがあると本番の前に必ず即席で1回返る。見送ると、その写真はこの起動の間ずっと作られない
+/// - それ以外（クラウドにしか無い・絵が無い・失敗）: この起動の間は配り直さない
+fn pregen_settle(
+    queue: &ThumbQueue,
+    db: &mut Db,
+    id: i64,
+    result: &Result<ThumbOutcome, ThumbError>,
+) {
+    match result {
+        Ok(ThumbOutcome::Final) => {
+            let _ = db.mark_thumb_unviewed(id);
+        }
+        Ok(ThumbOutcome::Provisional | ThumbOutcome::Stale | ThumbOutcome::AlreadyBuilt) => {}
+        _ => queue.skip_pregen(id),
+    }
+}
+
 impl ThumbQueue {
     pub fn new() -> Self {
         Self {
@@ -2114,6 +2477,11 @@ impl ThumbQueue {
                     processing: HashSet::new(),
                     failures: HashMap::new(),
                     fresh: HashSet::new(),
+                    pregen: VecDeque::new(),
+                    pregen_running: HashSet::new(),
+                    pregen_limit: 1,
+                    pregen_skip: HashSet::new(),
+                    demoted: HashSet::new(),
                     shutdown: false,
                 }),
                 cvar: Condvar::new(),
@@ -2134,6 +2502,12 @@ impl ThumbQueue {
                 continue;
             }
             if !state.processing.contains(&id) && state.queued.insert(id) {
+                state.pending.push_back(id);
+            } else if let Some(at) = state.pregen.iter().position(|&p| p == id) {
+                // 前もって作る列で待っていた写真に、素性の読み直しが来た（ファイルが変わった）。自動の列へ移す——
+                // 残すと読み直しが前もって作る速さでしか進まず、一時停止で列ごと捨てると読み直しも消える
+                // （PR #348 の /code-review）
+                state.pregen.remove(at);
                 state.pending.push_back(id);
             }
         }
@@ -2161,8 +2535,23 @@ impl ThumbQueue {
     pub fn prioritize(&self, ids: &[i64]) {
         let mut state = self.lock_state();
         let target: HashSet<i64> = ids.iter().copied().collect();
-        state.pending.retain(|id| !target.contains(id));
+        // 自動の列で順番を待っている（＝働き手がまだ読んでいない）写真。下で素性を先に読ませる。降ろすついでに拾う。
+        // 画面から去って降ろした写真（`demoted`）は読み終えているので、未読には数えない
+        let mut unread: HashSet<i64> = HashSet::new();
+        let st = &mut *state;
+        st.pending.retain(|id| {
+            let hit = target.contains(id);
+            if hit && !st.demoted.contains(id) {
+                unread.insert(*id);
+            }
+            !hit
+        });
+        for id in &target {
+            st.demoted.remove(id);
+        }
         state.priority.retain(|id| !target.contains(id));
+        // 前もって作る列で待っていた写真は、見えたので優先の列へ移す（下で載せ直す）
+        state.pregen.retain(|id| !target.contains(id));
         // 積み直すぶんは「キュー内」からいったん降ろす。下で載せたものだけが戻る。
         // **降ろしたまま積まないIDを残さないこと**——`queued` に居るのに列に
         // 居ないIDが出来ると、[`Self::enqueue`] の重複防止に永久に弾かれて、
@@ -2177,30 +2566,71 @@ impl ThumbQueue {
             if state.blocked(id) || state.processing.contains(&id) {
                 continue;
             }
-            if state.queued.insert(id) {
+            if !state.queued.insert(id) {
+                continue;
+            }
+            // **自動の列で順番を待っている写真（まだ読んでいない）は、素性（撮影日・寸法）を先に読む。** 原寸を解くのは、
+            // 日付が分かって本当の場所に並んでからでよい。新しいライブラリでは撮影日の分からない写真が
+            // ファイルの日付（コピーした今日）で一覧の先頭に固まり、見えた写真を原寸から作る→日付が分かって
+            // 去る→次の写真が見える、を繰り返して**全部を原寸から作っていた**（win2: 3万枚で約220秒。帯で
+            // 下へ逃げると素性だけになり約20秒）。自動の列の先頭へ積み、済めば `media-updated` で
+            // タイルが問い直し、まだ見えていれば今度は本番を作る。印（`fresh`）ではなく列で見る——監視が足した
+            // 写真や、読み途中で再起動した後の写真も、自動の列に居るので同じ扱いになる（/code-review）。
+            // いまは未読の写真は一覧の末尾の「読み込み中」の束に居る（`db::UNREAD_DAY_KEY`）ので先頭には固まらないが、
+            // 末尾まで送って未読の束を見たときに同じことが起きる
+            if unread.contains(&id) {
+                state.pending.push_front(id);
+            } else {
                 state.priority.push_front(id);
             }
+        }
+        // **優先の列は長くしない。** 一覧のタイルは要求のたびに1枚ずつ先頭へ押すので、帯で端から端まで送ると、
+        // 通り過ぎただけの写真が数千枚、原寸を解く仕事として残る（「開いた時だけ作る」に反する）。古い側
+        // （いちばん前に押されたもの）から自動の列の末尾へ降ろす——素性だけ読まれ、まだ画面にあれば
+        // タイルの問い直しか `set_visible_priority` がまた押す
+        while state.priority.len() > PRIORITY_MAX {
+            let Some(id) = state.priority.pop_back() else {
+                break;
+            };
+            // 優先の列に居たのは読み終えた写真——また見えたら未読扱いせず優先の列へ戻す（[`Self::demote`] と同じ）
+            state.demoted.insert(id);
+            state.pending.push_back(id);
         }
         drop(state);
         self.inner.cvar.notify_all();
     }
 
-    /// 次のジョブを取り出す。キューが空なら待機し、shutdownでNoneを返す。
-    /// 戻り値の bool は「優先キュー由来（＝高品質生成まで行う）」か。
+    /// 次のジョブを取り出す（[`Self::pop_job`]）。bool は「高品質生成まで行う」か（試験の書きやすさのため）
     pub fn pop(&self) -> Option<(i64, bool)> {
+        self.pop_job().map(|(id, job)| (id, job != Job::Auto))
+    }
+
+    /// 次のジョブを取り出す。キューが空なら待機し、shutdownでNoneを返す。
+    /// 優先の列 → 自動の列 → 前もって作る列（同時に [`QueueState::pregen_limit`] 本まで）の順
+    pub fn pop_job(&self) -> Option<(i64, Job)> {
         let mut state = self.lock_state();
         loop {
             if state.shutdown {
                 return None;
             }
             let next = match state.priority.pop_front() {
-                Some(id) => Some((id, true)),
-                None => state.pending.pop_front().map(|id| (id, false)),
+                Some(id) => Some((id, Job::Visible)),
+                None => match state.pending.pop_front() {
+                    Some(id) => Some((id, Job::Auto)),
+                    None if state.pregen_running.len() < state.pregen_limit => {
+                        state.pregen.pop_front().map(|id| (id, Job::Pregen))
+                    }
+                    None => None,
+                },
             };
-            if let Some((id, want_final)) = next {
+            if let Some((id, job)) = next {
                 state.queued.remove(&id);
+                state.demoted.remove(&id);
                 state.processing.insert(id);
-                return Some((id, want_final));
+                if job == Job::Pregen {
+                    state.pregen_running.insert(id);
+                }
+                return Some((id, job));
             }
             state = self
                 .inner
@@ -2215,6 +2645,11 @@ impl ThumbQueue {
         let mut state = self.lock_state();
         state.processing.remove(&id);
         state.fresh.remove(&id);
+        // 前もって作る仕事の枠が空いたら、待っている働き手を起こす
+        if state.pregen_running.remove(&id) {
+            drop(state);
+            self.inner.cvar.notify_all();
+        }
     }
 
     /// 処理を終えたが、もう一度解く（ファイルが書き換え途中・行が変わった）。[`Self::complete`] と違い、
@@ -2222,6 +2657,7 @@ impl ThumbQueue {
     pub fn requeue(&self, id: i64) {
         let mut state = self.lock_state();
         state.processing.remove(&id);
+        state.pregen_running.remove(&id);
         if !state.blocked(id) && state.queued.insert(id) {
             state.pending.push_back(id);
         }
@@ -2232,6 +2668,37 @@ impl ThumbQueue {
     /// 処理失敗を記録する。上限（MAX_FAILURES）を超えたIDは以後投入されない。
     pub fn record_failure(&self, id: i64) {
         *self.lock_state().failures.entry(id).or_insert(0) += 1;
+    }
+
+    /// 失敗が上限に達し、もう作り直さないIDか（一覧のタイルが待つかどうかの判定に使う）
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.lock_state().blocked(id)
+    }
+
+    /// 絵が出る前に画面から去った写真を、優先の列から降ろす（自動の列の末尾へ。素性だけ読まれる）。優先の列に
+    /// 居ない写真には何もしない。降ろした数を返す。
+    ///
+    /// 一覧をホイールで一気に送ると、通り過ぎたタイルが1枚ずつ優先の列へ押し、送り終えた画面の写真が、通り
+    /// 過ぎた写真の本番の後ろで待った（win2: 3万枚の一気送りで積まれた 145〜180 枚を全部作り、画面に残ったのは
+    /// 65 枚。働き手の時間の 55〜64% が通り過ぎた写真で、列の待ちが 20〜150ms）。降ろし方は
+    /// [`Self::prioritize`] が長すぎる列を切るときと同じ——まだ画面にあれば、タイルの問い直しか
+    /// `set_visible_priority` がまた押す
+    pub fn demote(&self, ids: &[i64]) -> usize {
+        let mut state = self.lock_state();
+        let target: HashSet<i64> = ids.iter().copied().collect();
+        let mut moved = Vec::new();
+        state.priority.retain(|id| {
+            let hit = target.contains(id);
+            if hit {
+                moved.push(*id);
+            }
+            !hit
+        });
+        let n = moved.len();
+        // `queued` には居たまま（列を移るだけ）なので、重複防止も崩れない
+        state.demoted.extend(moved.iter().copied());
+        state.pending.extend(moved);
+        n
     }
 
     /// このIDがキュー内または処理中か（LRU削除の競合回避用）。
@@ -2270,10 +2737,106 @@ impl ThumbQueue {
         state.fresh.len()
     }
 
+    /// 前もって作る列へ積む（キュー済み・処理中・失敗上限・この起動で見送ったものは無視）
+    /// 積んだ数を返す
+    pub fn enqueue_pregen(&self, ids: &[i64]) -> usize {
+        let mut state = self.lock_state();
+        let mut added = 0;
+        for &id in ids {
+            if state.blocked(id) || state.pregen_skip.contains(&id) {
+                continue;
+            }
+            if !state.processing.contains(&id) && state.queued.insert(id) {
+                state.pregen.push_back(id);
+                added += 1;
+            }
+        }
+        drop(state);
+        if added > 0 {
+            self.inner.cvar.notify_all();
+        }
+        added
+    }
+
+    /// 見送りを取り消す（利用者が開いて本番ができた）
+    pub fn unskip_pregen(&self, id: i64) {
+        self.lock_state().pregen_skip.remove(&id);
+    }
+
+    /// 前もって作る列を空にする（一時停止・設定をオフ）。処理中の分はそのまま終わらせる
+    pub fn clear_pregen(&self) {
+        let mut state = self.lock_state();
+        let QueueState { pregen, queued, .. } = &mut *state;
+        for id in pregen.drain(..) {
+            queued.remove(&id);
+        }
+    }
+
+    /// 前もって作る仕事で、待っている数と処理中の数の和（配り手が足すかどうかの目安）
+    pub fn pregen_backlog(&self) -> usize {
+        let state = self.lock_state();
+        state.pregen.len() + state.pregen_running.len()
+    }
+
+    /// 前もって作る仕事を同時に何本まで走らせるか（1以上）
+    pub fn set_pregen_limit(&self, limit: usize) {
+        self.lock_state().pregen_limit = limit.max(1);
+        self.inner.cvar.notify_all();
+    }
+
+    /// この起動の間は前もって作らない（クラウドにしか無い・絵が無い・失敗した）
+    pub fn skip_pregen(&self, id: i64) {
+        self.lock_state().pregen_skip.insert(id);
+    }
+
+    /// 見送った数（「残り」から引く）
+    pub fn pregen_skipped(&self) -> usize {
+        self.lock_state().pregen_skip.len()
+    }
+
+    /// 見送った id か（配り手が同じ写真を拾い直さないように）
+    pub fn is_pregen_skipped(&self, id: i64) -> bool {
+        self.lock_state().pregen_skip.contains(&id)
+    }
+
+    /// 素性の読み込みが一段落したか: 優先の列・自動の列が空で、処理中なのは前もって作る仕事だけ。
+    /// 「読み込み中」の束を片付ける合図（`src-tauri` の配り手）
+    pub fn metadata_idle(&self) -> bool {
+        let state = self.lock_state();
+        state.pending.is_empty()
+            && state.priority.is_empty()
+            && state.processing.is_subset(&state.pregen_running)
+    }
+
+    /// 自動の列（新しい写真の素性の読み込み）と優先の列が空か。前もって作るのはその後
+    pub fn foreground_idle(&self) -> bool {
+        let state = self.lock_state();
+        state.pending.is_empty() && state.priority.is_empty()
+    }
+
+    /// 「作り直す」の後: 失敗の数と見送りを忘れる（壊れていた写真も、もう一度試す）
+    pub fn forget_failures(&self) {
+        let mut state = self.lock_state();
+        state.failures.clear();
+        state.pregen_skip.clear();
+    }
+
     pub fn shutdown(&self) {
         self.lock_state().shutdown = true;
         self.inner.cvar.notify_all();
     }
+}
+
+/// 働き手が取る仕事の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Job {
+    /// 自動の列: 素性（撮影日・寸法）と、埋め込みの即席サムネイルまで
+    Auto,
+    /// 見えたタイル: 本番のサムネイルまで作る。クラウドにしか無いファイルも開く（利用者が見ている）
+    Visible,
+    /// 前もって作る（設定「サムネイルを自動生成」）: 本番まで作るが、**クラウドにしか無いファイルは開かない**。
+    /// 作ったサムネイルは「まだ見ていない」として残す（上限を超えたら先に消える）
+    Pregen,
 }
 
 /// 1件の処理で、その行の `camera_id` がどう動いたか（dev #28）。
@@ -2365,7 +2928,7 @@ impl ThumbnailService {
                     let Ok(mut db) = Db::open(&db_path) else {
                         return;
                     };
-                    while let Some((id, want_final)) = queue.pop() {
+                    while let Some((id, job)) = queue.pop_job() {
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
                         //
@@ -2381,14 +2944,23 @@ impl ThumbnailService {
                         let camera_before = db.camera_id_of_media(id);
                         let version_before = db.version_of(id).ok().flatten();
                         let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
-                            process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
+                            process_one_job(&mut db, &thumbs_dir, thumb_size, id, job)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
+                        if job == Job::Pregen {
+                            pregen_settle(&queue, &mut db, id, &result);
+                        } else if matches!(result, Ok(ThumbOutcome::Final)) {
+                            // 見送った写真（クラウドにしか無い等）を利用者が開いて本番ができた。見送りの数から外す
+                            // （「残り」は本番の無い数から見送りを引くので、残すと少なく数える）
+                            queue.unskip_pregen(id);
+                        }
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         let stale = matches!(result, Ok(ThumbOutcome::Stale));
                         finish_job(&queue, &db, id, version_before, stale);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
+                        // 読めなかった新しい写真は「読み込み中」の束に残り、読み込みが一段落したところでまとめて
+                        // ファイルの日付の日へ出る（`src-tauri` の配り手、`Db::settle_all_unread`）
                         if result.is_err() {
                             queue.record_failure(id);
                         }
@@ -2424,6 +2996,16 @@ impl ThumbnailService {
         self.queue.prioritize(ids);
     }
 
+    /// 失敗が上限に達し、もう作り直さないIDか（[`ThumbQueue::is_blocked`]）。
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.queue.is_blocked(id)
+    }
+
+    /// 画面から去った写真を優先の列から降ろす（[`ThumbQueue::demote`]）
+    pub fn demote(&self, ids: &[i64]) -> usize {
+        self.queue.demote(ids)
+    }
+
     /// キュー内＋処理中のIDのスナップショット（LRU削除の除外集合用）。
     pub fn active_ids(&self) -> HashSet<i64> {
         self.queue.active_ids()
@@ -2442,6 +3024,16 @@ impl ThumbnailService {
     /// このIDがキュー内または処理中か（LRU削除ファイル消去直前の再確認用）。
     pub fn is_active(&self, id: i64) -> bool {
         self.queue.is_active(id)
+    }
+
+    /// 列そのもの（前もって作る列の操作: [`ThumbQueue::enqueue_pregen`] ほか）
+    pub fn queue(&self) -> &ThumbQueue {
+        &self.queue
+    }
+
+    /// 働き手の数
+    pub fn worker_count(&self) -> usize {
+        self.workers.len()
     }
 
     /// 全ワーカーを停止して合流する。
@@ -2535,8 +3127,9 @@ mod tests {
     /// 先頭で止める読みと、従来の全体の読みを、同じバイト列で比べる。
     /// 3つ目は読み手が届いた位置。
     fn read_both(bytes: Vec<u8>) -> (DateAndThumb, DateAndThumb, u64) {
-        let full = exif::Reader::new()
-            .read_from_container(&mut std::io::Cursor::new(bytes.clone()))
+        // 比べる相手は製品と同じ読み手（「次の IFD」の誤りだけは許す）。厳密な読み手と比べると、piexif が書いた
+        // ファイルが「違う」と出る（PR #349 の /code-review）
+        let full = parse_exif_container(&mut std::io::Cursor::new(bytes.clone()))
             .map(|e| exif_data_from(&e))
             .expect("全体では読める");
         let mut reach = Reach {
@@ -2708,8 +3301,7 @@ mod tests {
             inner: std::io::Cursor::new(bytes.to_vec()),
             furthest: 0,
         };
-        let date = exif::Reader::new()
-            .read_from_container(&mut BufReader::new(&mut reach))
+        let date = parse_exif_container(&mut BufReader::new(&mut reach))
             .ok()
             .and_then(|e| exif_data_from(&e).taken_at_ms);
         (date, reach.furthest)
@@ -2785,12 +3377,11 @@ mod tests {
                     continue;
                 };
                 files += 1;
-                let old: Option<ExifData> = match exif::Reader::new()
-                    .read_from_container(&mut std::io::Cursor::new(bytes.clone()))
-                {
-                    Ok(e) => Some(exif_data_from(&e)),
-                    Err(_) => None,
-                };
+                let old: Option<ExifData> =
+                    match parse_exif_container(&mut std::io::Cursor::new(bytes.clone())) {
+                        Ok(e) => Some(exif_data_from(&e)),
+                        Err(_) => None,
+                    };
                 let len = bytes.len() as u64;
                 let is_tiff = bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*");
                 // 切手を残す読み（一覧・ビューア）と、捨てる読み（取り込みの日付）の両方
@@ -4298,9 +4889,14 @@ mod tests {
         let queue = ThumbQueue::new();
         queue.enqueue(&[1, 2, 3, 4, 5]);
         queue.prioritize(&[4, 3]);
-        // 優先キュー由来は want_final = true（高品質まで生成）
+        // 見えている順に先に渡す。自動の列で待っていた（まだ読んでいない）写真なので、まず素性だけ
+        assert_eq!(queue.pop(), Some((4, false)));
+        assert_eq!(queue.pop(), Some((3, false)));
+        queue.complete(4);
+        queue.complete(3);
+        // 読み終えた写真を頼み直すと、優先キュー由来の want_final = true（高品質まで生成）
+        queue.prioritize(&[4]);
         assert_eq!(queue.pop(), Some((4, true)));
-        assert_eq!(queue.pop(), Some((3, true)));
         assert_eq!(queue.pop(), Some((1, false)));
         assert_eq!(queue.pop(), Some((2, false)));
         assert_eq!(queue.pop(), Some((5, false)));
@@ -4402,8 +4998,8 @@ mod tests {
         queue.prioritize(&[1, 2]);
         assert_eq!(
             pop_within(&queue, 10),
-            Some((2, true)),
-            "処理中の1は積み直されない"
+            Some((2, false)),
+            "処理中の1は積み直されない（2はまだ読んでいないので素性から）"
         );
         queue.complete(1);
         queue.prioritize(&[1]);
@@ -4425,7 +5021,7 @@ mod tests {
             queue.record_failure(1);
         }
         queue.prioritize(&[1, 2]);
-        assert_eq!(pop_within(&queue, 10), Some((2, true)));
+        assert_eq!(pop_within(&queue, 10), Some((2, false)));
         assert!(!queue.is_active(1), "載せないIDをキュー内に残さない");
     }
 
@@ -4941,6 +5537,752 @@ mod tests {
         queue.record_failure(8);
         queue.enqueue(&[8]);
         assert_eq!(queue.pop(), Some((8, false)));
+    }
+
+    /// 写真の行が消える・サムネイルが外れると、そのファイルが控えに積まれ、片付けで消える。同じ名前に作り直した
+    /// ものは残す。作業中は次の回へ
+    #[test]
+    fn the_trash_removes_thumbnails_whose_row_let_go_of_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let files: Vec<ScannedFile> = (1..=3)
+            .map(|i| ScannedFile {
+                path: dir.path().join(format!("p{i}.jpg")),
+                size: 1,
+                mtime_ms: 1,
+            })
+            .collect();
+        db.upsert_files(&files).unwrap();
+        let ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        let (a, b, c) = (ids[0], ids[1], ids[2]);
+        let thumbs = dir.path().join("thumbs");
+        let put = |id: i64| {
+            let p = thumb_path_for(&thumbs, id, "webp");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let (pa, pb, pc) = (put(a), put(b), put(c));
+        for (id, p) in [(a, &pa), (b, &pb), (c, &pc)] {
+            db.update_thumb_path(id, p, 2, None).unwrap();
+        }
+        // a: 写真を消した。b: 回して外れ、同じ名前で作り直された。c: 外れたが作業中
+        let path_a = db.get_by_id(a).unwrap().unwrap().path;
+        db.remove_paths(&[path_a]).unwrap();
+        db.clear_thumb_path(b, &pb).unwrap();
+        db.update_thumb_path(b, &pb, 2, None).unwrap();
+        db.clear_thumb_path(c, &pc).unwrap();
+        assert_eq!(db.thumb_trash_batch(10, 0).unwrap().len(), 3);
+
+        let n = drain_thumb_trash(&mut db, &thumbs, 10, &|id| id == c).unwrap();
+        assert_eq!(n, 1);
+        assert!(!pa.exists(), "行の消えた写真のサムネイルは消す");
+        assert!(pb.exists(), "同じ名前で作り直したものは残す");
+        assert!(pc.exists(), "作業中は触らない");
+        assert_eq!(
+            db.thumb_trash_batch(10, 0).unwrap().len(),
+            1,
+            "作業中の控えは次の回へ残る"
+        );
+        let n = drain_thumb_trash(&mut db, &thumbs, 10, &|_| false).unwrap();
+        assert_eq!(n, 1);
+        assert!(!pc.exists());
+        assert!(db.thumb_trash_batch(10, 0).unwrap().is_empty());
+    }
+
+    /// 先頭の控えが作業中で見送られても、後ろの控えは片付く（先頭で詰まらない）
+    #[test]
+    fn the_trash_reads_past_entries_it_has_to_skip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let files: Vec<ScannedFile> = (1..=2)
+            .map(|i| ScannedFile {
+                path: dir.path().join(format!("p{i}.jpg")),
+                size: 1,
+                mtime_ms: 1,
+            })
+            .collect();
+        db.upsert_files(&files).unwrap();
+        let thumbs = dir.path().join("thumbs");
+        let mut made = Vec::new();
+        for r in db.list_all().unwrap() {
+            let p = thumb_path_for(&thumbs, r.id, "webp");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            db.update_thumb_path(r.id, &p, 2, None).unwrap();
+            made.push((r.id, p));
+        }
+        for (id, p) in &made {
+            db.clear_thumb_path(*id, p).unwrap();
+        }
+        let first = db.thumb_trash_batch(1, 0).unwrap()[0].1;
+        let n = drain_thumb_trash(&mut db, &thumbs, 1, &|id| id == first).unwrap();
+        assert_eq!(n, 1, "見送った先頭の後ろを片付ける");
+        assert_eq!(
+            db.thumb_trash_batch(10, 0).unwrap().len(),
+            1,
+            "見送った控えは残る"
+        );
+    }
+
+    /// 持ち主の居ないサムネイルだけを消す: 行が無い・行のサムネイルが別の名前。行のある名前、新しいファイル、
+    /// 作業中の id、一時ファイル、形の違う名前・フォルダには触らない
+    #[test]
+    fn only_thumbnails_nobody_owns_are_swept() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let files: Vec<ScannedFile> = (1..=4)
+            .map(|i| ScannedFile {
+                path: dir.path().join(format!("p{i}.jpg")),
+                size: 1,
+                mtime_ms: 1,
+            })
+            .collect();
+        db.upsert_files(&files).unwrap();
+        let ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        let (a, b, c) = (ids[0], ids[1], ids[2]);
+        // 記録のパスは**別の置き場**（データのフォルダを動かした後）。名前で突き合わせるので消えない
+        let elsewhere = dir.path().join("old-data").join("thumbs");
+        db.update_thumb_path(a, &thumb_path_for(&elsewhere, a, "webp"), 2, None)
+            .unwrap();
+        db.update_thumb_path(b, &thumb_path_for(&elsewhere, b, "webp"), 2, None)
+            .unwrap();
+        let thumbs = dir.path().join("thumbs");
+        let put = |id: i64, ext: &str| {
+            let p = thumb_path_for(&thumbs, id, ext);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let owned = put(a, "webp");
+        let stale_variant = put(b, "jpg"); // 行は webp。作り直す前の jpg が残った
+        let gone = put(9_999, "webp"); // 行が無い（写真を消した）
+        let in_flight = put(c, "webp"); // 行に記録は無いが作業中
+        let partial = {
+            let p = thumbs.join("0f").join(format!("15.webp{PARTIAL_MARK}1-0"));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let odd = {
+            let p = thumbs.join("notes").join("1.webp");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let active = |id: i64| id == c;
+        let flat_orphan = {
+            // 古い平らな置き方（置き場の直下）の、行の無いもの
+            let p = thumbs.join("8888.jpg");
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let wrong_bucket = {
+            // 行のある名前でも、その id のフォルダでなければ誰も読まない
+            let other = format!("{:02x}", ((a % 256 + 1) % 256) as u8);
+            let p = thumbs.join(other).join(format!("{a}.webp"));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+
+        // 新しいファイルは消さない
+        let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::from_secs(3600), &active)
+            .unwrap();
+        assert_eq!(n, (0, 5), "候補5つはどれも新しいので見送り、その数を返す");
+        assert!(gone.exists());
+
+        let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::ZERO, &active).unwrap();
+        assert_eq!(n, (4, 1), "作業中の1つは見送り");
+        assert!(!flat_orphan.exists(), "古い置き方の孤児も消す");
+        assert!(!wrong_bucket.exists(), "違うフォルダの同じ名前は消す");
+        assert!(
+            owned.exists(),
+            "行のある名前は残す（記録のパスの頭が違っても）"
+        );
+        assert!(!stale_variant.exists(), "行のサムネイルと違う名前は消す");
+        assert!(!gone.exists(), "行の無いものは消す");
+        assert!(in_flight.exists(), "作業中は消さない");
+        assert!(partial.exists(), "一時ファイルは別の掃除が受け持つ");
+        assert!(odd.exists(), "形の違うフォルダには触らない");
+    }
+
+    /// 優先の列は上限まで。溢れたぶんは古い側から自動の列（素性だけ）へ降り、新しい要求が先に作られる
+    /// 前もって作る列は、優先の列も自動の列も空のときだけ、決めた本数まで取られる
+    #[test]
+    fn the_pregen_lane_waits_behind_everything_and_is_capped() {
+        let queue = ThumbQueue::new();
+        queue.set_pregen_limit(1);
+        queue.enqueue_pregen(&[10, 11]);
+        queue.enqueue(&[1]);
+        queue.prioritize(&[2]);
+        assert_eq!(queue.pop_job(), Some((2, Job::Visible)));
+        assert_eq!(queue.pop_job(), Some((1, Job::Auto)));
+        assert_eq!(queue.pop_job(), Some((10, Job::Pregen)));
+        // 1 本走っている間は、2 本目を取らない（見えたタイルの仕事は取れる）
+        queue.prioritize(&[3]);
+        assert_eq!(queue.pop_job(), Some((3, Job::Visible)));
+        let q2 = queue.clone();
+        let waiter = std::thread::spawn(move || q2.pop_job());
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!waiter.is_finished(), "枠が埋まっている間は待つ");
+        queue.complete(10);
+        assert_eq!(waiter.join().unwrap(), Some((11, Job::Pregen)));
+    }
+
+    /// piexif などが書く形の EXIF を持つ JPEG: Exif IFD の「次の IFD」の欄が 0 でない（規格では 0）。
+    /// IFD0 に向き、Exif IFD に撮影日時、IFD1 に埋め込みサムネイル（win2 の試験データと同じ形、2026-11-18）
+    fn jpeg_with_stray_exif_next_ifd(width: u32, height: u32, orientation: u16) -> Vec<u8> {
+        let thumb = test_jpeg_bytes(160, 120);
+        let mut t: Vec<u8> = b"II".to_vec();
+        let u16le = |t: &mut Vec<u8>, v: u16| t.extend_from_slice(&v.to_le_bytes());
+        let u32le = |t: &mut Vec<u8>, v: u32| t.extend_from_slice(&v.to_le_bytes());
+        u16le(&mut t, 42);
+        u32le(&mut t, 8);
+        // IFD0（8〜38）: 向き・Exif IFD へのポインタ。次は IFD1（76）
+        u16le(&mut t, 2);
+        u16le(&mut t, 0x0112);
+        u16le(&mut t, 3);
+        u32le(&mut t, 1);
+        u16le(&mut t, orientation);
+        u16le(&mut t, 0);
+        u16le(&mut t, 0x8769);
+        u16le(&mut t, 4);
+        u32le(&mut t, 1);
+        u32le(&mut t, 38);
+        u32le(&mut t, 76);
+        // Exif IFD（38〜56）: 撮影日時（56 から 20 バイト）。**次の欄が 0 でない**
+        u16le(&mut t, 1);
+        u16le(&mut t, 0x9003);
+        u16le(&mut t, 2);
+        u32le(&mut t, 20);
+        u32le(&mut t, 56);
+        u32le(&mut t, 0x0000_dead);
+        t.extend_from_slice(b"2021:05:06 07:08:09\0");
+        // IFD1（76〜106）: 埋め込みサムネイル（106 から）
+        u16le(&mut t, 2);
+        u16le(&mut t, 0x0201);
+        u16le(&mut t, 4);
+        u32le(&mut t, 1);
+        u32le(&mut t, 106);
+        u16le(&mut t, 0x0202);
+        u16le(&mut t, 4);
+        u32le(&mut t, 1);
+        u32le(&mut t, thumb.len() as u32);
+        u32le(&mut t, 0);
+        assert_eq!(t.len(), 106);
+        t.extend_from_slice(&thumb);
+        let body = test_jpeg_bytes(width, height);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + t.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\x00\x00");
+        out.extend_from_slice(&t);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    /// Exif IFD の「次の IFD」の欄が 0 でない EXIF（piexif が書く形）でも、向き・撮影日時・埋め込みサムネイルを読む。
+    /// kamadak-exif はこの形を丸ごと拒むので、以前は全部落ちていた（向き 1・撮影日は OS・本番を初回の読みで作る）
+    #[test]
+    fn exif_with_a_stray_next_ifd_in_the_exif_ifd_is_still_read() {
+        let jpeg = jpeg_with_stray_exif_next_ifd(800, 600, 6);
+        // 対照: そのままの読み手はこの形を拒む（試験データがバグを再現していることの確かめ）
+        assert!(matches!(
+            exif::Reader::new().read_from_container(&mut std::io::Cursor::new(&jpeg)),
+            Err(exif::Error::InvalidFormat("Unexpected next IFD"))
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("piexif.jpg");
+        std::fs::write(&p, &jpeg).unwrap();
+        let data = read_exif(&p);
+        assert_eq!(data.orientation, 6);
+        assert!(data.taken_at_ms.is_some(), "撮影日時");
+        assert!(data.thumbnail.is_some(), "埋め込みサムネイル");
+        let info = read_exif_info(&p);
+        assert!(info.camera.is_none() && info.gps.is_none());
+
+        // 一覧の経路でも: 寸法が向きで回り、本番のサムネイルも縦長
+        let mut db = Db::open(&dir.path().join("x.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let thumbs = dir.path().join("thumbs");
+        assert!(matches!(
+            process_one(&mut db, &thumbs, 160, id, false).unwrap(),
+            ThumbOutcome::Provisional
+        ));
+        process_one(&mut db, &thumbs, 160, id, true).unwrap();
+        let r = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((r.width, r.height), (Some(600), Some(800)), "向き6で縦長");
+        let (tw, th) = image::image_dimensions(r.thumb_path.as_ref().unwrap()).unwrap();
+        assert!(th > tw, "本番のサムネイルも縦長: {tw}x{th}");
+    }
+
+    /// 走査で入った新しい写真は「読み込み中」の束（一覧の末尾）に居て、読むと本当の日へ移る。読めなければ束に残り、
+    /// 読み込みが一段落したところで（`settle_unread_day` で代わりに）ファイルの日付の日へ出る。
+    /// 中身が変わった既存の写真は束へ戻らない
+    #[test]
+    fn new_photos_wait_at_the_end_until_their_date_is_read() {
+        use crate::db::UNREAD_DAY_KEY;
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("u.db")).unwrap();
+        let good = dir.path().join("good.jpg");
+        std::fs::write(&good, jpeg_with_stray_exif_next_ifd(80, 60, 1)).unwrap();
+        let gone = dir.path().join("gone.jpg"); // 走査の後に消えた（開けない）
+        let scan = |p: &Path, mtime_ms| ScannedFile {
+            path: p.to_path_buf(),
+            size: 1,
+            mtime_ms,
+        };
+        db.upsert_files(&[
+            scan(&good, 1_557_057_600_000),
+            scan(&gone, 1_557_057_600_000),
+        ])
+        .unwrap();
+        let id_of = |db: &Db, p: &Path| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path == p)
+                .unwrap()
+                .id
+        };
+        let (g, x) = (id_of(&db, &good), id_of(&db, &gone));
+        let day = |db: &Db, id| db.get_by_id(id).unwrap().unwrap().day_key;
+        assert_eq!((day(&db, g), day(&db, x)), (UNREAD_DAY_KEY, UNREAD_DAY_KEY));
+        assert_eq!(
+            db.timeline_summary(crate::MediaFilter::All).unwrap()[0].day_key,
+            UNREAD_DAY_KEY
+        );
+
+        // 読めた写真は EXIF の撮影日（2021-05-06）の日へ
+        process_one(&mut db, &dir.path().join("thumbs"), 160, g, false).unwrap();
+        assert_eq!(day(&db, g), 20210506);
+        // 開けない写真は読みが失敗し、日は動かない（束に残り、読み込みが一段落したら出る）
+        let r = process_one(&mut db, &dir.path().join("thumbs"), 160, x, false);
+        assert!(r.is_err());
+        assert_eq!(day(&db, x), UNREAD_DAY_KEY, "失敗した読みは日を動かさない");
+        db.settle_unread_day(x).unwrap();
+        assert_eq!(day(&db, x) / 10000, 2019);
+        // 読み終えた行に、もう一度「束から出す」を当てても動かない
+        db.settle_unread_day(g).unwrap();
+        assert_eq!(day(&db, g), 20210506);
+
+        // 中身が変わった既存の写真は、束へ戻らず、今の日に居る（読み直しで撮影日へ）
+        db.upsert_files(&[ScannedFile {
+            path: good.clone(),
+            size: 2,
+            mtime_ms: 1_557_057_600_000,
+        }])
+        .unwrap();
+        assert_eq!(
+            day(&db, g),
+            20210506,
+            "読んだ写真の中身が変わっても日は動かない"
+        );
+        assert!(db
+            .timeline_summary(crate::MediaFilter::All)
+            .unwrap()
+            .iter()
+            .all(|d| d.day_key != UNREAD_DAY_KEY));
+    }
+
+    /// 書き込み中のファイル（大きさが変わった）でも、まだ読んでいない行は「読み込み中」の束から出ない
+    #[test]
+    fn a_file_still_being_written_stays_in_the_unread_day() {
+        use crate::db::UNREAD_DAY_KEY;
+        let mut db = Db::open_in_memory().unwrap();
+        let f = |size| ScannedFile {
+            path: "a.jpg".into(),
+            size,
+            mtime_ms: 1_557_057_600_000,
+        };
+        db.upsert_files(&[f(1)]).unwrap();
+        db.upsert_files(&[f(2)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+    }
+
+    /// 前の版で EXIF を拒まれていた JPEG だけを、一度きり読み直しへ回す（クラウドにしか無いものは開かない）
+    #[test]
+    fn photos_read_before_the_fix_are_sent_back_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("r.db")).unwrap();
+        let files: [(&str, Vec<u8>); 4] = [
+            ("stray.jpg", jpeg_with_stray_exif_next_ifd(80, 60, 6)),
+            ("cloud.JPG", jpeg_with_stray_exif_next_ifd(80, 60, 6)),
+            ("good.jpg", jpeg_with_embedded_thumbnail(80, 60)),
+            ("plain.jpeg", test_jpeg_bytes(80, 60)),
+        ];
+        let mut ids = std::collections::HashMap::new();
+        for (name, bytes) in &files {
+            let p = dir.path().join(name);
+            std::fs::write(&p, bytes).unwrap();
+            db.upsert_files(&[ScannedFile {
+                path: p.clone(),
+                size: 1,
+                mtime_ms: 1,
+            }])
+            .unwrap();
+            let id = db
+                .list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path == p)
+                .unwrap()
+                .id;
+            // 前の版が読み終えた形: 寸法・本番のサムネイルあり
+            db.update_shell_metadata(id, 80, 60, None::<TakenAt>)
+                .unwrap();
+            db.update_thumb_path(id, &dir.path().join(format!("{id}.webp")), 2, Some(10))
+                .unwrap();
+            ids.insert(*name, id);
+        }
+        // 起動時の後追い（連写の材料）が、直った読み手で撮影日時の出どころを先に exif へ書き換えた形
+        // （win2 の実機。出どころで候補を絞ると、ここで漏れた）
+        db.update_shell_metadata(
+            ids["stray.jpg"],
+            80,
+            60,
+            TakenAt::tag(Some(1_620_000_000_000), TakenSource::Exif),
+        )
+        .unwrap();
+        let cloud = dir.path().join("cloud.JPG");
+        let sent = reread_stray_exif(&mut db, &|p| p == cloud, None).unwrap();
+        assert_eq!(
+            sent,
+            StrayReread {
+                reset: vec![ids["stray.jpg"]],
+                deferred: vec![ids["cloud.JPG"]],
+            }
+        );
+        let r = db.get_by_id(ids["stray.jpg"]).unwrap().unwrap();
+        assert_eq!((r.width, r.thumb_state, r.thumb_path), (None, 0, None));
+        for name in ["cloud.JPG", "good.jpg", "plain.jpeg"] {
+            let r = db.get_by_id(ids[name]).unwrap().unwrap();
+            assert_eq!(r.thumb_state, 2, "{name} は触らない");
+        }
+        assert!(db
+            .ids_missing_metadata()
+            .unwrap()
+            .contains(&ids["stray.jpg"]));
+        // 保留にした写真は、後で（クラウドから落ちてきた後に）それだけを見直せる
+        let later = reread_stray_exif(&mut db, &|_| false, Some(&[ids["cloud.JPG"]])).unwrap();
+        assert_eq!(
+            later,
+            StrayReread {
+                reset: vec![ids["cloud.JPG"]],
+                deferred: vec![],
+            }
+        );
+    }
+
+    /// 許すのは「次の IFD」の誤りだけ。ほかの誤り（値が範囲の外を指す等）が混じれば、これまでどおり読まない
+    #[test]
+    fn other_exif_errors_are_still_rejected() {
+        let mut t: Vec<u8> = b"II".to_vec();
+        t.extend_from_slice(&42u16.to_le_bytes());
+        t.extend_from_slice(&8u32.to_le_bytes());
+        t.extend_from_slice(&1u16.to_le_bytes());
+        t.extend_from_slice(&0x010fu16.to_le_bytes()); // Make, ASCII 40 → 範囲の外
+        t.extend_from_slice(&2u16.to_le_bytes());
+        t.extend_from_slice(&40u32.to_le_bytes());
+        t.extend_from_slice(&0x1000u32.to_le_bytes());
+        t.extend_from_slice(&0u32.to_le_bytes());
+        assert!(exif::Reader::new().read_raw(t.clone()).is_err(), "対照");
+        assert!(read_exif_raw(t).is_err());
+    }
+
+    /// 「次の IFD」の誤りに、ほかの誤りが混じっていたら読まない（許すのは前者だけのとき）
+    #[test]
+    fn a_stray_next_ifd_with_another_error_is_still_rejected() {
+        let jpeg = jpeg_with_stray_exif_next_ifd(80, 60, 6);
+        // TIFF の部分（APP1 の "Exif\0\0" の後）を取り出し、Exif IFD の撮影日時の値の位置を範囲の外へずらす
+        let len = u16::from_be_bytes([jpeg[4], jpeg[5]]) as usize;
+        let mut tiff = jpeg[12..4 + len].to_vec();
+        // Exif IFD(38) の1つ目の項目の値の位置: 38+2+8
+        let at = 38 + 2 + 8;
+        tiff[at..at + 4].copy_from_slice(&0x0010_0000u32.to_le_bytes());
+        // 2つの誤りが集まることの確かめ（片方だけなら、この試験は何も見張らない）
+        match exif::Reader::new()
+            .continue_on_error(true)
+            .read_raw(tiff.clone())
+        {
+            Err(exif::Error::PartialResult(p)) => {
+                let (_, errors) = p.into_inner();
+                assert!(errors.len() >= 2, "{errors:?}");
+            }
+            other => panic!("部分の結果にならない: ok={}", other.is_ok()),
+        }
+        assert!(read_exif_raw(tiff).is_err());
+    }
+
+    /// TIFF の並びで渡す道（TIFF・RAW の先頭読み、CR3 の箱）でも、「次の IFD」の誤りだけなら読む
+    #[test]
+    fn a_stray_next_ifd_is_tolerated_on_the_raw_path_too() {
+        let jpeg = jpeg_with_stray_exif_next_ifd(80, 60, 6);
+        let len = u16::from_be_bytes([jpeg[4], jpeg[5]]) as usize;
+        let tiff = jpeg[12..4 + len].to_vec();
+        assert!(exif::Reader::new().read_raw(tiff.clone()).is_err(), "対照");
+        let exif = read_exif_raw(tiff).unwrap();
+        assert_eq!(exif_data_from(&exif).orientation, 6);
+    }
+
+    /// 埋め込みサムネイル（IFD1）のある JPEG（向きは 1）
+    fn jpeg_with_embedded_thumbnail(width: u32, height: u32) -> Vec<u8> {
+        let thumb = test_jpeg_bytes(160, 120);
+        // TIFF: ヘッダ8 + IFD0（項目1）18 + IFD1（項目2）30 → サムネイルは56バイト目から
+        let mut tiff: Vec<u8> = b"II".to_vec();
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation, SHORT, 1
+        tiff.extend_from_slice(&3u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0u16.to_le_bytes());
+        tiff.extend_from_slice(&26u32.to_le_bytes()); // 次は IFD1
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0201u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&56u32.to_le_bytes());
+        tiff.extend_from_slice(&0x0202u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&(thumb.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(tiff.len(), 56);
+        tiff.extend_from_slice(&thumb);
+        let body = test_jpeg_bytes(width, height);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\x00\x00");
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    /// 前もって作る仕事は、サムネイルの無い行でも即席を飛ばして本番まで作る（見えたタイルは即席を先に返す）。
+    /// もう本番がある行は作り直さず、利用時刻にも触らない
+    #[test]
+    fn a_pregen_job_builds_the_final_at_once_and_leaves_built_rows_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("p.db")).unwrap();
+        let mut ids = Vec::new();
+        for name in ["a.jpg", "b.jpg"] {
+            let p = dir.path().join(name);
+            std::fs::write(&p, jpeg_with_embedded_thumbnail(800, 600)).unwrap();
+            db.upsert_files(&[ScannedFile {
+                path: p.clone(),
+                size: 1,
+                mtime_ms: 1,
+            }])
+            .unwrap();
+            ids.push(
+                db.list_all()
+                    .unwrap()
+                    .into_iter()
+                    .find(|r| r.path == p)
+                    .unwrap()
+                    .id,
+            );
+        }
+        let thumbs = dir.path().join("thumbs");
+        // 対照: 見えたタイルは、埋め込みがあれば即席を先に返す（この写真で即席の道が通ることの確かめ）
+        assert!(matches!(
+            process_one_job(&mut db, &thumbs, 160, ids[0], Job::Visible).unwrap(),
+            ThumbOutcome::Provisional
+        ));
+        assert!(matches!(
+            process_one_job(&mut db, &thumbs, 160, ids[1], Job::Pregen).unwrap(),
+            ThumbOutcome::Final
+        ));
+        db.touch_thumbs(&[(ids[1], 777)]).unwrap();
+        assert!(matches!(
+            process_one_job(&mut db, &thumbs, 160, ids[1], Job::Pregen).unwrap(),
+            ThumbOutcome::AlreadyBuilt
+        ));
+        let queue = ThumbQueue::new();
+        pregen_settle(&queue, &mut db, ids[1], &Ok(ThumbOutcome::AlreadyBuilt));
+        assert!(!queue.is_pregen_skipped(ids[1]));
+        let used = db.thumb_used_ms_of(ids[1]).unwrap_or(0);
+        assert!(
+            used >= 777,
+            "見た時刻を「まだ見ていない」へ戻さない: {used}"
+        );
+    }
+
+    /// 前もって作る列で待っている写真に素性の読み直しが来たら、自動の列へ移る（列を空にしても読み直しは残る）
+    #[test]
+    fn a_reread_moves_a_photo_out_of_the_pregen_lane() {
+        let queue = ThumbQueue::new();
+        queue.set_pregen_limit(4);
+        assert_eq!(queue.enqueue_pregen(&[5, 6]), 2);
+        assert_eq!(queue.enqueue_pregen(&[5]), 0, "もう列に居る");
+        queue.enqueue(&[5]);
+        queue.clear_pregen();
+        assert!(queue.is_active(5), "読み直しは列に残る");
+        assert_eq!(queue.pop_job(), Some((5, Job::Auto)));
+        assert!(!queue.is_active(6));
+    }
+
+    /// 前もって作った仕事の後始末: 即席だけ書いた写真は見送らない（次の周でもう一度配る）。本番は「まだ見ていない」に
+    #[test]
+    fn a_provisional_pregen_result_is_not_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        db.upsert_files(&[crate::ScannedFile {
+            path: dir.path().join("a.jpg"),
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let queue = ThumbQueue::new();
+        pregen_settle(&queue, &mut db, id, &Ok(ThumbOutcome::Provisional));
+        pregen_settle(&queue, &mut db, id, &Ok(ThumbOutcome::Stale));
+        assert!(!queue.is_pregen_skipped(id), "即席・入れ違いは見送らない");
+        pregen_settle(&queue, &mut db, id, &Ok(ThumbOutcome::Deferred));
+        assert!(
+            queue.is_pregen_skipped(id),
+            "クラウドにしか無い写真は見送る"
+        );
+    }
+
+    /// 画面から去った写真は優先の列から自動の列の末尾へ降りる。優先の列に居ない写真・処理中の写真には触らない
+    #[test]
+    fn demote_moves_passed_tiles_out_of_the_priority_lane() {
+        let queue = ThumbQueue::new();
+        queue.prioritize(&[1, 2, 3]);
+        assert_eq!(queue.demote(&[2, 9]), 1, "優先の列に居た 2 だけ");
+        // 残った優先の列が先、降ろした 2 は自動の列から
+        assert_eq!(queue.pop_job(), Some((1, Job::Visible)));
+        assert_eq!(queue.pop_job(), Some((3, Job::Visible)));
+        assert_eq!(queue.pop_job(), Some((2, Job::Auto)));
+        // 処理中の写真は降ろさない（もう走っている）
+        queue.prioritize(&[4]);
+        assert_eq!(queue.pop_job(), Some((4, Job::Visible)));
+        assert_eq!(queue.demote(&[4]), 0);
+        // 長すぎて切った写真も、また見えたら優先の列へ戻る（未読扱いしない）
+        let over: Vec<i64> = (100..100 + PRIORITY_MAX as i64 + 1).collect();
+        queue.prioritize(&over);
+        // 引数順に先頭へ積むので、切られるのは最後の 1 枚
+        let cut = *over.last().unwrap();
+        queue.prioritize(&[cut]);
+        assert_eq!(queue.pop_job(), Some((cut, Job::Visible)));
+        queue.complete(cut);
+        for _ in 0..PRIORITY_MAX {
+            let (id, _) = queue.pop_job().unwrap();
+            queue.complete(id);
+        }
+        // 降ろした写真がまた見えたら、優先の列へ戻る
+        queue.complete(1);
+        queue.complete(3);
+        queue.complete(2);
+        queue.complete(4);
+        queue.prioritize(&[5]);
+        queue.demote(&[5]);
+        queue.prioritize(&[5]);
+        assert_eq!(queue.pop_job(), Some((5, Job::Visible)));
+    }
+
+    /// 素性の読み込みが一段落した（自動・優先の列が空で、処理中は前もって作る仕事だけ）
+    #[test]
+    fn metadata_idle_ignores_only_pregen_work() {
+        let queue = ThumbQueue::new();
+        assert!(queue.metadata_idle());
+        queue.enqueue(&[1]);
+        assert!(!queue.metadata_idle(), "自動の列に居る");
+        assert_eq!(queue.pop_job(), Some((1, Job::Auto)));
+        assert!(!queue.metadata_idle(), "素性を読んでいる");
+        queue.complete(1);
+        queue.enqueue_pregen(&[2]);
+        assert_eq!(queue.pop_job(), Some((2, Job::Pregen)));
+        assert!(queue.metadata_idle(), "前もって作る仕事は数えない");
+    }
+
+    /// 見えた写真は前もって作る列から優先の列へ移る。列を空にしても、積み直せなくなる id を残さない
+    #[test]
+    fn the_pregen_lane_yields_to_visible_tiles_and_clears_cleanly() {
+        let queue = ThumbQueue::new();
+        queue.set_pregen_limit(4);
+        queue.enqueue_pregen(&[1, 2, 3]);
+        queue.prioritize(&[2]);
+        assert_eq!(queue.pop_job(), Some((2, Job::Visible)));
+        queue.clear_pregen();
+        assert_eq!(queue.pregen_backlog(), 0);
+        assert!(!queue.is_active(1) && !queue.is_active(3));
+        // 空にした後も、同じ写真をまた積める
+        queue.enqueue_pregen(&[3]);
+        assert_eq!(queue.pop_job(), Some((3, Job::Pregen)));
+        // 見送った写真は積まない。「作り直す」で忘れる
+        queue.skip_pregen(7);
+        queue.enqueue_pregen(&[7]);
+        assert_eq!(queue.pregen_backlog(), 1);
+        queue.forget_failures();
+        queue.enqueue_pregen(&[7]);
+        assert_eq!(queue.pregen_backlog(), 2);
+        assert_eq!(queue.pregen_skipped(), 0);
+        // 前もって作る列だけが積まれている間は「手前は空いている」
+        assert!(queue.foreground_idle());
+        queue.enqueue(&[20]);
+        assert!(!queue.foreground_idle());
+    }
+
+    #[test]
+    fn the_priority_queue_keeps_only_the_newest_requests() {
+        let queue = ThumbQueue::new();
+        let n = PRIORITY_MAX as i64 + 3;
+        for id in 1..=n {
+            queue.prioritize(&[id]); // 一覧のタイルが1枚ずつ押す形
+        }
+        assert_eq!(queue.pop(), Some((n, true)), "いちばん新しい要求が先");
+        for _ in 1..PRIORITY_MAX {
+            let (_, want_final) = queue.pop().unwrap();
+            assert!(want_final);
+        }
+        // 最初の3枚は自動の列へ降りている（消えてはいない）
+        assert_eq!(queue.pop(), Some((1, false)));
+        assert_eq!(queue.pop(), Some((2, false)));
+        assert_eq!(queue.pop(), Some((3, false)));
+    }
+
+    /// 自動の列で待っている（まだ読んでいない）写真は、見えても先に素性だけ読む（原寸から作るのは日付が
+    /// 分かってから）。読み終えた写真・列に居なかった写真は今までどおり本番を作る
+    #[test]
+    fn an_unread_photo_is_read_for_metadata_before_it_is_built() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2, 3]);
+        queue.prioritize(&[3]);
+        assert_eq!(
+            queue.pop(),
+            Some((3, false)),
+            "自動の列の先頭へ（素性だけ）"
+        );
+        queue.complete(3);
+        queue.prioritize(&[3]);
+        assert_eq!(queue.pop(), Some((3, true)), "読み終えたら本番");
+        queue.complete(3);
+        queue.prioritize(&[9]); // 列に居なかった写真（サムネイルが消えた等）
+        assert_eq!(queue.pop(), Some((9, true)));
+    }
+
+    /// 一覧のタイルは、失敗が上限に達した写真を待たない（`is_blocked` で見分ける）
+    #[test]
+    fn is_blocked_turns_on_exactly_at_the_failure_limit() {
+        let queue = ThumbQueue::new();
+        for _ in 0..MAX_FAILURES - 1 {
+            queue.record_failure(7);
+        }
+        assert!(!queue.is_blocked(7), "上限の手前では、まだ作り直す");
+        queue.record_failure(7);
+        assert!(queue.is_blocked(7));
+        assert!(!queue.is_blocked(8), "失敗していない写真は待ってよい");
     }
 
     /// 撮影日時のEXIFを付けたJPEG（カメラが書くプレビューに相当）。

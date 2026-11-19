@@ -16,6 +16,11 @@ import {
   setImportDestination,
   setAutoAdvance,
   setHardwareAcceleration,
+  setAutoThumbnails,
+  setThumbCacheMb,
+  thumbCacheInfo,
+  rebuildThumbnails,
+  type ThumbCacheInfo,
   setPairView,
   setSlideshowTransition,
   setViewerTransition,
@@ -45,7 +50,8 @@ import {
 } from "./api";
 import { OutgoingFolderActions } from "./OutgoingFolderActions";
 import { usePlatform } from "./usePlatform";
-import { confirmTemporaryDestination } from "./confirm";
+import { confirmAction, confirmTemporaryDestination } from "./confirm";
+import { formatSize, sizeBaseFor } from "./fileInfo";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import {
   LOCALES,
@@ -53,10 +59,23 @@ import {
   readLocaleChoice,
   setLocaleChoice,
   t,
+  formatLocale,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { applyTheme, readTheme, type ThemeChoice } from "./theme";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
+
+/** サムネイルの置き場の上限の目盛り（MB）。最後の 0 は無制限 */
+const THUMB_CAPS_MB = [1024, 2048, 4096, 8192, 16384, 32768, 0];
+/** 保存されている上限に一番近い目盛り（手で書いた半端な値も、近い目盛りに乗せて見せる） */
+const capStepOf = (mb: number) => {
+  if (mb === 0) return THUMB_CAPS_MB.length - 1;
+  let best = 0;
+  THUMB_CAPS_MB.forEach((v, i) => {
+    if (v !== 0 && Math.abs(Math.log(v / mb)) < Math.abs(Math.log(THUMB_CAPS_MB[best] / mb))) best = i;
+  });
+  return best;
+};
 
 /**
  * 設定ダイアログ。
@@ -69,6 +88,7 @@ export default function Settings({
   open,
   dismiss = false,
   importWaiting = null,
+  focusSection = null,
   onClose,
   config,
   onConfigChanged,
@@ -90,6 +110,8 @@ export default function Settings({
    * 閉じる道を1つ置く**——閉じれば App が開く（pictkura-dev #71）
    */
   importWaiting?: string | null;
+  /** 開いたときに見せる節（上の帯の「サムネイル 残り n」の小窓から開いたとき） */
+  focusSection?: "thumbnails" | null;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
@@ -137,6 +159,35 @@ export default function Settings({
   const [updateNewer, setUpdateNewer] = useState<UpdateCheck | null>(null);
   /** 問い合わせ中か。**文言の一致では見ない**（言語を足すと壊れる・ゲート2） */
   const [updateChecking, setUpdateChecking] = useState(false);
+  /** サムネイルの置き場の使用量（開いている間、ときどき読み直す） */
+  const [thumbInfo, setThumbInfo] = useState<ThumbCacheInfo | null>(null);
+  /** スライダーの位置（動かしている間は手元の値。離してから保存する） */
+  const [capStep, setCapStep] = useState<number | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
+  const savedCapMb = config?.performance?.thumb_cache_mb ?? 4096;
+  const thumbsSectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open || focusSection !== "thumbnails") return;
+    // 面が描かれてから寄せる
+    const raf = window.requestAnimationFrame(() =>
+      thumbsSectionRef.current?.scrollIntoView({ block: "start" }),
+    );
+    return () => window.cancelAnimationFrame(raf);
+  }, [open, focusSection]);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const load = () =>
+      thumbCacheInfo()
+        .then((i) => alive && setThumbInfo(i))
+        .catch(() => {});
+    void load();
+    const timer = window.setInterval(load, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -930,6 +981,111 @@ export default function Settings({
               <p className="settings-note">{t.settingsHardwareAccelerationNote}</p>
             </section>
           )}
+
+          {/* サムネイル（2026-11-18 利用者と決めた形）。自動生成は既定オフ・上限はスライダー・トラブル時の作り直し */}
+          <section className="settings-section" ref={thumbsSectionRef}>
+            <h3>{t.settingsThumbnails}</h3>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={config?.performance?.auto_thumbnails ?? false}
+                onChange={async (e) => {
+                  try {
+                    await setAutoThumbnails(e.target.checked);
+                  } catch (err) {
+                    onError(errText(err));
+                  }
+                  onConfigChanged();
+                }}
+              />
+              {t.settingsAutoThumbsToggle}
+            </label>
+            <p className="settings-note">{t.settingsAutoThumbsNote}</p>
+            {(() => {
+              const step = capStep ?? capStepOf(savedCapMb);
+              // 動かしていない間は保存されている値そのもの（設定ファイルに目盛りの間・1 GB 未満の値を書いた人。
+              // 目盛りに丸めると、表示も「8割で止まっています」の判定も裏と食い違う。win2 の実機）
+              const mb = capStep !== null ? THUMB_CAPS_MB[capStep] : savedCapMb;
+              const size = (bytes: number) => formatSize(bytes, sizeBaseFor(platform), formatLocale);
+              // 1 枚の大きさは今あるサムネイルの平均から（まだ無ければ 50 KB とみる）
+              const per = thumbInfo && thumbInfo.count > 0 ? thumbInfo.bytes / thumbInfo.count : 50 * 1024;
+              return (
+                <>
+                  <div className="settings-cap-head">
+                    <label htmlFor="settings-thumb-cap">{t.settingsThumbCap}</label>
+                    {/* 大きさは向きを閉じる（右から左の画面で「GB 2」と並ばないように） */}
+                    <bdi className="settings-cap-value">
+                      {mb === 0 ? t.settingsThumbCapUnlimited : size(mb * 1024 * 1024)}
+                    </bdi>
+                  </div>
+                  <div className="slider settings-cap">
+                    <input
+                      id="settings-thumb-cap"
+                      type="range"
+                      min={0}
+                      max={THUMB_CAPS_MB.length - 1}
+                      step={1}
+                      value={step}
+                      aria-valuetext={mb === 0 ? t.settingsThumbCapUnlimited : size(mb * 1024 * 1024)}
+                      style={{ "--fill": `${(step / (THUMB_CAPS_MB.length - 1)) * 100}%` } as React.CSSProperties}
+                      // 目盛りが変わるたびに保存する（離した事件に頼らない——要素の外で離す・離さずに閉じると
+                      // 保存されなかった。PR #348 の /code-review）。目盛りは 7 つだけで、一方向に動かす間の値は
+                      // 始めと終わりの間にあるので、途中で掃除役が走っても終わりの値より多くは消さない
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setCapStep(v);
+                        setThumbCacheMb(THUMB_CAPS_MB[v])
+                          .catch((err) => onError(errText(err)))
+                          .finally(onConfigChanged);
+                      }}
+                    />
+                  </div>
+                  <p className="settings-note">
+                    {thumbInfo ? t.settingsThumbCapUsage(size(thumbInfo.bytes), thumbInfo.count) : ""}
+                    {mb === 0 ? t.settingsThumbCapNoLimit : t.settingsThumbCapFits(Math.round((mb * 1024 * 1024) / per))}
+                  </p>
+                  {/* 自動生成は上限の 8 割で止まる（Rust の `spawn_auto_thumbs`）。オンにしても動かない理由をここで言う */}
+                  {(config?.performance?.auto_thumbnails ?? false) &&
+                    mb > 0 &&
+                    thumbInfo !== null &&
+                    thumbInfo.bytes >= mb * 1024 * 1024 * 0.8 && (
+                      <p className="settings-note">{t.settingsAutoThumbsAtCap}</p>
+                    )}
+                </>
+              );
+            })()}
+            <div className="settings-rebuild">
+              <div>
+                <div className="settings-rebuild-title">{t.settingsRebuildThumbs}</div>
+                <p className="settings-note">{t.settingsRebuildThumbsNote}</p>
+              </div>
+              <button
+                type="button"
+                className="settings-plain-button"
+                disabled={rebuilding}
+                onClick={async () => {
+                  const ok = await confirmAction(
+                    platform,
+                    t.rebuildThumbsConfirm,
+                    t.rebuildThumbsOk,
+                    onError,
+                  );
+                  if (!ok) return;
+                  setRebuilding(true);
+                  try {
+                    await rebuildThumbnails();
+                    setThumbInfo(await thumbCacheInfo());
+                  } catch (err) {
+                    onError(errText(err));
+                  } finally {
+                    setRebuilding(false);
+                  }
+                }}
+              >
+                {t.settingsRebuildThumbsButton}
+              </button>
+            </div>
+          </section>
 
           <section className="settings-section">
             {/*

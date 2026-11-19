@@ -364,8 +364,15 @@ const dateTimeFormat = cachedFormat({
 const monthFormat = cachedFormat({ year: "numeric", month: "long" });
 const monthOnlyFormat = cachedFormat({ month: "long" });
 
+/**
+ * **まだ撮影日を読んでいない新しい写真の日**（一覧の末尾の「読み込み中」の束）。Rust の `db::UNREAD_DAY_KEY` と同じ値。
+ * 日付ではないので、日付として描く所（帯の年・月、カレンダー、パレットの日）には混ぜない
+ */
+export const UNREAD_DAY = -2;
+
 /** day_key（YYYYMMDD整数）を、その言語の日付表記にする */
 export const formatDayKey = (dayKey: number) => {
+  if (dayKey === UNREAD_DAY) return t.dayUnread;
   const y = Math.floor(dayKey / 10000);
   const m = Math.floor(dayKey / 100) % 100;
   const d = dayKey % 100;

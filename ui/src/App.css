@@ -353,6 +353,98 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   }
 }
 
+/* サムネイルの自動生成（設定、既定オフ）。押すと一時停止と設定への入口が開く（OneDrive のトレイの感じ） */
+.bg-auto {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.topbar .bg-auto-button {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  /* 「サムネイル 残り 12,345」が入る幅。読み込み中（16ch）より長い。アラビア語の一時停止の形が 24ch で切れた（win2） */
+  max-width: 32ch;
+}
+.topbar .bg-auto-button:hover,
+.topbar .bg-auto-button.open {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.bg-auto-icon {
+  flex: none;
+}
+/* 上の帯は幅の問い合わせ（container）で自分の重なりの層を持つので、そのままだと下の一覧（タイムラインの帯など）が
+   小窓の上に描かれる。小窓が開いている間だけ帯ごと持ち上げる（ビューア・知らせより下） */
+.topbar:has(.bg-auto-pop) {
+  position: relative;
+  z-index: 20;
+}
+.bg-auto-pop {
+  /* 置き場は BackgroundWork.tsx が窓の座標で決める（窓からはみ出さないよう寄せる） */
+  position: fixed;
+  z-index: 40;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  padding: 14px 16px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  white-space: normal;
+}
+.bg-auto-pop-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.bg-auto-pop-body {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+.topbar .bg-auto-pop .settings-plain-button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.topbar .bg-auto-pop .settings-plain-button:hover {
+  background: var(--surface-2);
+}
+.bg-auto-pop-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+.topbar .bg-auto-pop-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.topbar .bg-auto-pop-link:hover {
+  background: none;
+  color: var(--accent);
+}
+
 /* 表示切替: セグメントコントロール */
 .view-switch {
   display: flex;
@@ -419,6 +511,82 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   max-width: 420px;
   /* 欄の幅で札（⌘K）を出すか決める（下の @container search） */
   container: search / inline-size;
+}
+
+/* 検索欄の候補（`searchSuggest.ts`）。欄のすぐ下に、欄と同じ幅で */
+.search-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  /* 欄が狭い窓でも説明が切れない幅は取る（欄より広くてよい。幅 700 の英語で切れた。デザインの統一性チェック 3 周目）。
+     窓よりは広げない */
+  inset-inline-start: 0;
+  width: max(100%, 280px);
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  z-index: 40;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-2);
+}
+.search-suggest li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+/* 選んでいる行はパレットと同じ印（選んでいる行の面・行頭の藍の棒・太さ）。触れたときの面（--surface-2）だけだと、
+   ダークではどの行か見えなかった（デザインの統一性チェック 3 周目） */
+.search-suggest li.active {
+  position: relative;
+  background: var(--selected-bg);
+}
+/* 太くするのは名前だけ（説明・枚数まで太くすると幅が変わり、長い名前の省略の位置が行を動くたびにずれた） */
+.search-suggest li.active .search-suggest-main {
+  font-weight: 600;
+}
+/* 選んでいる行の面の上では、薄い字（--text-faint）はダークで 4.05:1 しか出ない。パレットと同じく一段濃くする */
+.search-suggest li.active .search-suggest-hint {
+  color: var(--text-muted);
+}
+/* マウスを乗せた行は薄い面だけ（選んでいる行の印は、キーで選んだ行に残す） */
+.search-suggest li:hover:not(.active) {
+  background: var(--surface-2);
+}
+/* 名前の枠は左から右のまま（尻尾の側を省略する）。右から左の画面では、行の頭（右）へ寄せる——枠は左から右なので、
+   その向きの終わり（end）＝右 */
+[dir="rtl"] .search-suggest-main {
+  text-align: end;
+}
+.search-suggest-main {
+  /* 長いカメラ名は省略する（枚数・説明を押し出さない） */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.search-suggest-hint {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  text-align: end;
+}
+/* 上の帯は幅の問い合わせで自分の重なりの層を持つ。候補が開いている間だけ帯ごと持ち上げる（下の一覧に潜らないように） */
+.topbar:has(.search-suggest) {
+  position: relative;
+  z-index: 20;
 }
 
 .search-icon {
@@ -637,6 +805,7 @@ input[type="range"]:focus-visible {
    別の要素で描く——角丸の行に inset の影で引くと、角に沿って「(」の形に曲がった（デザインレビュー） */
 .nav-item.active::before,
 .palette-item.active::before,
+.search-suggest li.active::before,
 .wiz-node.active::before {
   content: "";
   position: absolute;
@@ -655,6 +824,7 @@ input[type="range"]:focus-visible {
 @media (forced-colors: active) {
   .nav-item.active::before,
   .palette-item.active::before,
+  .search-suggest li.active::before,
   .wiz-node.active::before {
     forced-color-adjust: none;
     background: Highlight;
@@ -1230,6 +1400,14 @@ input[type="range"]:focus-visible {
 .grid-scroll::-webkit-scrollbar {
   display: none;
 }
+/* 帯が無い間（新しいライブラリで、まだ1枚も撮影日を読めていない最初の1〜2秒）だけ、ふつうのスクロールバーを出す
+   ——帯もスクロールバーも無いと、掴んで動かす手段が無い（PR #351 の /code-review）。太さはほかの所と同じ細いもの */
+.grid-scroll.no-rail {
+  scrollbar-width: thin;
+}
+.grid-scroll.no-rail::-webkit-scrollbar {
+  display: initial;
+}
 .date-header {
   display: flex;
   align-items: baseline;
@@ -1302,6 +1480,11 @@ input[type="range"]:focus-visible {
     filter var(--dur-fast) var(--easing),
     opacity var(--dur-fast) var(--easing);
   opacity: 0;
+}
+/* サムネイルがもうあるタイル（`GridThumb.tsx` の `ready`）は、届いたらその場で出す。一気に送ると、タイルが画面に
+   居るのは数十 ms——浮かべると、多くがフェードの途中の暗い絵のまま去った（win2: 動いている間の絵 0.79 → 0.50） */
+.cell[data-instant] {
+  transition: filter var(--dur-fast) var(--easing);
 }
 .cell[data-shown],
 /* 選んだタイルは届く前でも出す——選択の輪（下の `.picked .cell`）が絵の側に付いているので、
@@ -1457,6 +1640,14 @@ input[type="range"]:focus-visible {
   flex: 1;
   overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
+}
+/* 月のカードと同じ列に置く（左端から始めると、中央に並ぶ月のカードとずれた。デザインの統一性チェック 3 周目） */
+.calendar-unread {
+  max-width: 720px;
+  margin: 0 auto var(--sp-2);
+  padding: var(--sp-2) 0;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
 }
 .calendar-empty {
   padding: var(--sp-7);
@@ -3297,6 +3488,43 @@ input[type="range"]:focus-visible {
    アプリの書体も色も継がない */
 .about-links button,
 .settings-waiting button,
+/* サムネイルの置き場の上限（設定）。写真の大きさのつまみと同じ描き方で、幅いっぱい */
+.settings-cap-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 12px;
+}
+.settings-cap-head label {
+  flex: 1;
+}
+.settings-cap-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.settings-cap {
+  display: flex;
+  margin: 6px 0 2px;
+}
+.settings-cap input[type="range"] {
+  width: 100%;
+}
+.settings-rebuild {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.settings-rebuild > div {
+  flex: 1;
+}
+.settings-rebuild-title {
+  /* ほかの設定の行の名前と同じ太さ（太いと節の見出しに見えた。デザインの統一性チェック 3 周目） */
+  font-weight: 400;
+}
+.settings-rebuild button {
+  flex: none;
+}
 .settings-plain-button {
   padding: 4px 12px;
   border-radius: var(--radius-control);

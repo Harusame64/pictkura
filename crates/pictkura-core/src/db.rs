@@ -486,6 +486,34 @@ const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NU
      thumb_path = NULL, \
      thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL, rev = rev + 1";
 
+/// **まだ撮影日時を読んでいない新しい写真の日**（一覧の末尾の「読み込み中」の束）。
+///
+/// 新しいライブラリでは撮影日時が分からないうちは並びの鍵がファイルの日付（コピーした今日）になり、未読の写真が
+/// 一覧の先頭に固まっていた。先頭に見えた写真を読む → 本当の日へ去る → 次の未読が来る、で先頭が読み終わるまで
+/// 灰色のままだった（3万枚で約45秒。2026-11-18 利用者「未読は末尾にまとめる」）。走査で**新しく入れる行**だけに
+/// 付け、撮影日時を書く道（`update_metadata*`・`update_shell_metadata`）が本当の日へ移す。読めずに終わった行（開けない・
+/// 掴まれている・壊れている・クラウドにしか無い）は束に残り、**読み込みが一段落したところで**
+/// [`Db::settle_all_unread`] がまとめてファイルの日付の日へ移す（`src-tauri` の配り手。main と同じ並び）。次の起動で
+/// 読み直され、読めれば本当の日へ移る。行ごとに「いつ出すか」を決める形は、書き込み中・掴まれた・権限が無い・時刻が
+/// 未来…と境目が尽きなかった（PR #351 の /code-review 4周）
+///
+/// **中身が変わった既存の行は、日を動かさない**（`upsert_files`・`apply_scan` の `ON CONFLICT`、[`Db::reset_for_reread`]）。
+/// 撮影日時を空にして読み直しへ回すが、読み直すまでの間ファイルの日付（多くは今日）の日へ置くと、外で編集した写真や
+/// 書き込み中のファイルが一瞬一覧の先頭へ跳んだ（win2 の実機、PR #351）。読み直しが撮影日時を書けば本当の日へ移る。
+/// その間は、元の日の見出しの下にファイルの日付で並ぶ（読み直しが失敗し続ければそのまま）。まだ読んでいない行は束に居たまま
+///
+/// -1 は「ライブラリの外から開いた写真」の日（`src-tauri` の `OUTSIDE_DAY_KEY`）、0 は「まだ計算していない」印
+/// （`Db::init` が起動のたびに計算し直す）なので使わない。0 以下は思い出（`list_memories`）にも入らない
+pub const UNREAD_DAY_KEY: i64 = -2;
+
+/// 「読み込み中」の束の行を並びの鍵の日へ移す SQL（[`Db::settle_unread_day`]）。`extra` は絞り込みの続き
+fn settle_unread_sql(extra: &str) -> String {
+    format!(
+        "UPDATE media SET day_key = {} WHERE day_key = {UNREAD_DAY_KEY} {extra}",
+        day_key_expr(SORT_TS)
+    )
+}
+
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
 /// day_keyの計算はすべてSQLite側（strftime + localtime）に統一する。
 fn day_key_expr(ms_expr: &str) -> String {
@@ -860,10 +888,38 @@ impl Db {
                 ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE favorite = 1;
             CREATE INDEX IF NOT EXISTS idx_media_picked_day
                 ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE picked = 1;
+            CREATE INDEX IF NOT EXISTS idx_media_thumb_pending
+                ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE thumb_state < 2;
             CREATE INDEX IF NOT EXISTS idx_media_thumb_lru
                 ON media(thumb_used_ms, thumb_bytes) WHERE thumb_state = 2;
             "#
         ))?;
+        // **捨てるサムネイルの控え。** 写真の行が消える・行のサムネイルが外れる（回した・作り直す・LRU）と、
+        // そのファイル名をここへ積む。行が消えるとサムネイルの持ち主の記録も消え、ファイルだけが置き場に残って
+        // いた（2026-11-18 利用者）。消す道は多い（走査・監視・ゴミ箱・ルートを外す・パスの正規化）ので、
+        // 道ごとでなく DB の引き金で拾う。片付けは掃除役（[`Db::thumb_trash_batch`]）が、消す直前にその名前を
+        // どの行も使っていないことを確かめてから行う
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS thumb_trash (
+                path      TEXT PRIMARY KEY,
+                id        INTEGER NOT NULL,
+                queued_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_thumb_trash_queued ON thumb_trash(queued_ms, path);
+            CREATE TRIGGER IF NOT EXISTS thumb_trash_ad AFTER DELETE ON media
+            WHEN old.thumb_path IS NOT NULL BEGIN
+                INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
+                VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+            END;
+            CREATE TRIGGER IF NOT EXISTS thumb_trash_au AFTER UPDATE OF thumb_path ON media
+            WHEN old.thumb_path IS NOT NULL
+                AND (new.thumb_path IS NULL OR new.thumb_path <> old.thumb_path) BEGIN
+                INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
+                VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+            END;
+            "#,
+        )?;
         // 移行: day_key未計算（=0）の既存レコードを埋める
         conn.execute(
             &format!(
@@ -1372,14 +1428,13 @@ impl Db {
             let mut stmt = tx.prepare_cached(&format!(
                 r#"
                 INSERT INTO media (path, size, mtime_ms, day_key, parent_dir, kind)
-                VALUES (?1, ?2, ?3, {}, {}, pk_kind(?1))
+                VALUES (?1, ?2, ?3, {UNREAD_DAY_KEY}, {}, pk_kind(?1))
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
-                    day_key = excluded.day_key,
+                    day_key = media.day_key,
                     {}
                 "#,
-                day_key_expr("?3"),
                 parent_dir_expr("?1"),
                 CHANGED_ROW_RESET
             ))?;
@@ -1522,16 +1577,15 @@ impl Db {
             &format!(
                 r#"
                 INSERT INTO media (path, size, mtime_ms, day_key, parent_dir, kind)
-                SELECT s.path, s.size, s.mtime_ms, {}, {}, pk_kind(s.path)
+                SELECT s.path, s.size, s.mtime_ms, {UNREAD_DAY_KEY}, {}, pk_kind(s.path)
                 FROM scan_tmp s LEFT JOIN media m ON m.path = s.path
                 WHERE m.id IS NULL OR m.size <> s.size OR m.mtime_ms <> s.mtime_ms
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
-                    day_key = excluded.day_key,
+                    day_key = media.day_key,
                     {}
                 "#,
-                day_key_expr("s.mtime_ms"),
                 parent_dir_expr("s.path"),
                 CHANGED_ROW_RESET
             ),
@@ -2036,7 +2090,7 @@ impl Db {
             let mut stmt = tx.prepare_cached(&format!(
                 "SELECT id, thumb_path, thumb_bytes FROM media
                  WHERE thumb_state = 2 AND thumb_bytes IS NOT NULL {filter}
-                 ORDER BY thumb_used_ms ASC"
+                 ORDER BY thumb_used_ms ASC, {SORT_TS} ASC"
             ))?;
             let rows = stmt.query_map(params![guard.unwrap_or(recent_guard_ms)], |r| {
                 Ok((
@@ -2432,6 +2486,187 @@ impl Db {
             content_hash: r.get(11)?,
             pending,
         })
+    }
+
+    /// サムネイルを持つ行の、サムネイルのファイル名（`{id}.{ext}`）。孤児の掃除（[`crate::thumbs::sweep_orphan_thumbs`]）が
+    /// 突き合わせに使う。**名前だけ**を返す——データのフォルダを動かしたポータブル版では、記録のパスの頭が今と違う
+    pub fn thumb_file_names(&self) -> Result<std::collections::HashMap<i64, String>, DbError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, thumb_path FROM media WHERE thumb_path IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = std::collections::HashMap::new();
+        for row in rows {
+            let (id, path) = row?;
+            if let Some(name) = Path::new(&path).file_name() {
+                out.insert(id, name.to_string_lossy().into_owned());
+            }
+        }
+        Ok(out)
+    }
+
+    /// 捨てるサムネイルの控え（`thumb_trash` 表）を古い順に `offset` から `limit` 件。`(記録のパス, id, 積んだ時刻)`
+    pub fn thumb_trash_batch(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(String, i64, i64)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT path, id, queued_ms FROM thumb_trash ORDER BY queued_ms, path LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map([limit as i64, offset as i64], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 片付けた控えを外す
+    pub fn thumb_trash_done(&mut self, paths: &[String]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut del = tx.prepare_cached("DELETE FROM thumb_trash WHERE path = ?1")?;
+            for p in paths {
+                del.execute([p])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 行のサムネイルを外す（記録がまだそのパスのときだけ）。外したかを返す。外したファイルは引き金が
+    /// `thumb_trash` に積む
+    pub fn clear_thumb_path(&mut self, id: i64, path: &Path) -> Result<bool, DbError> {
+        let n = self.conn.execute(
+            "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
+             WHERE id = ?1 AND thumb_path = ?2",
+            params![id, path.to_string_lossy()],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// 前もって作ったサムネイル（設定「サムネイルを自動生成」）を「まだ見ていない」にする。利用時刻を 0 にするので、
+    /// 上限を超えたときは見た絵より先に、撮影日の古い順に消える（[`Db::evict_final_thumbs`]）。見れば
+    /// タッチ（[`Db::touch_thumbs`]）が今の時刻へ上げる
+    pub fn mark_thumb_unviewed(&mut self, id: i64) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE media SET thumb_used_ms = 0 WHERE id = ?1 AND thumb_state = 2",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    /// 前もって作るサムネイルの候補（本番のサムネイルが無い写真）を、一覧と同じ並び（新しい順）で `after` の
+    /// 次から `limit` 件。戻り値の鍵を次の `after` に渡すと続きが読める
+    pub fn pregen_candidates(
+        &self,
+        after: Option<PregenCursor>,
+        limit: usize,
+    ) -> Result<Vec<(i64, PregenCursor)>, DbError> {
+        let map = |r: &rusqlite::Row<'_>| -> rusqlite::Result<(i64, PregenCursor)> {
+            let id: i64 = r.get(0)?;
+            Ok((id, (r.get(1)?, r.get(2)?, id)))
+        };
+        let rows = match after {
+            None => {
+                let mut stmt = self.conn.prepare_cached(&format!(
+                    "SELECT id, day_key, {SORT_TS} FROM media WHERE thumb_state < 2
+                     ORDER BY day_key DESC, {SORT_TS} DESC, id DESC LIMIT ?1"
+                ))?;
+                let rows = stmt
+                    .query_map(params![limit as i64], map)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+            Some((day, ts, id)) => {
+                let mut stmt = self.conn.prepare_cached(&format!(
+                    "SELECT id, day_key, {SORT_TS} FROM media WHERE thumb_state < 2
+                     AND (day_key, {SORT_TS}, id) < (?1, ?2, ?3)
+                     ORDER BY day_key DESC, {SORT_TS} DESC, id DESC LIMIT ?4"
+                ))?;
+                let rows = stmt
+                    .query_map(params![day, ts, id, limit as i64], map)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+        };
+        Ok(rows)
+    }
+
+    /// 「読み込み中」の束に残っている行を、すべて並びの鍵の日（撮影日時が無ければファイルの日付）へ移す。移した数を返す。
+    /// 読み込みが一段落したときに呼ぶ（[`UNREAD_DAY_KEY`]）
+    pub fn settle_all_unread(&mut self) -> Result<usize, DbError> {
+        Ok(self.conn.execute(&settle_unread_sql(""), [])?)
+    }
+
+    /// 試験用: サムネイルの利用時刻
+    #[cfg(test)]
+    pub(crate) fn thumb_used_ms_of(&self, id: i64) -> Option<i64> {
+        self.conn
+            .query_row("SELECT thumb_used_ms FROM media WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    }
+
+    /// 本番のサムネイルがまだ無い写真の数（前もって作る「残り」のもと）
+    pub fn pregen_candidate_count(&self) -> Result<usize, DbError> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM media WHERE thumb_state < 2",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    /// 本番のサムネイルの数と合計の大きさ（設定の「いま n 使用中」）
+    pub fn thumb_cache_stats(&self) -> Result<(usize, i64), DbError> {
+        let (n, bytes): (i64, i64) = self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(thumb_bytes), 0) FROM media WHERE thumb_state = 2",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((n as usize, bytes))
+    }
+
+    /// 「サムネイルを作り直す」: すべての行のサムネイルを外す。外したファイルは引き金が `thumb_trash` に積み、
+    /// 掃除役が順に消す（同じ名前で作り直された絵は、持ち主がいるので消さない）。SVG の「要らない」印（3）は残す。
+    /// 外した行の数を返す
+    pub fn reset_all_thumbs(&mut self) -> Result<usize, DbError> {
+        let n = self.conn.execute(
+            "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
+             WHERE thumb_path IS NOT NULL OR thumb_state IN (1, 2, 4)",
+            [],
+        )?;
+        Ok(n)
+    }
+
+    /// 書き手の順番（`BEGIN IMMEDIATE`）を持ったまま `f` を走らせる。`f` は読むだけ・ファイルを触るだけ。
+    /// サムネイルの付け替え（[`crate::thumbs`] の `publish_thumb`）は書き手の順番の中で記録して付け替えるので、
+    /// この中で確かめて消せば、付け替えの途中と入れ違わない
+    pub fn holding_write_lock<T>(&mut self, f: impl FnOnce(&Db) -> T) -> Result<T, DbError> {
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        let _ = self.conn.execute_batch("COMMIT");
+        match out {
+            Ok(v) => Ok(v),
+            Err(p) => std::panic::resume_unwind(p),
+        }
+    }
+
+    /// 1行のサムネイルのファイル名（無ければ None）。孤児の掃除が、消す直前に確かめ直すのに使う
+    pub fn thumb_file_name(&self, id: i64) -> Result<Option<String>, DbError> {
+        let path: Option<String> = self
+            .conn
+            .query_row("SELECT thumb_path FROM media WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .flatten();
+        Ok(path.and_then(|p| {
+            Path::new(&p)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        }))
     }
 
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
@@ -3775,6 +4010,65 @@ impl Db {
         Ok(out)
     }
 
+    /// 「読み込み中」の束（[`UNREAD_DAY_KEY`]）に居る行を、並びの鍵の日へ移す。読めずに終わった（開けない・
+    /// クラウドにしか無くて OS も何も知らない）行が、束に残り続けないように。撮影日時を書いた行はもう移っている
+    pub fn settle_unread_day(&mut self, id: i64) -> Result<(), DbError> {
+        self.conn.execute(&settle_unread_sql("AND id = ?1"), [id])?;
+        Ok(())
+    }
+
+    /// 写真の行の数（新しいライブラリかどうかの見分け）
+    pub fn media_count(&self) -> Result<i64, DbError> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM media", [], |r| r.get(0))?)
+    }
+
+    /// EXIF を入れ物から読む写真の行すべて（[`crate::thumbs::reread_stray_exif`] の候補）。
+    ///
+    /// **行の状態では絞らない。** 起動時の後追い（連写の材料・カメラ）は、直った読み手で撮影日時の出どころや
+    /// カメラを先に書き換えるので、「出どころが EXIF でない」で絞ると候補から全部漏れた（win2 の実機、
+    /// PR #349）。見分けはファイルの EXIF でする
+    ///
+    /// 入れ物が EXIF の箱だけを読ませる形式（JPEG・WebP・PNG・HEIF）に限る。TIFF と TIFF 系の RAW は、
+    /// 入れ物ごと読むとファイル全体を読むので外す（piexif が書くのは JPEG と WebP）
+    pub fn exif_container_rows(&self) -> Result<Vec<FallbackDateRow>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, path FROM media
+             WHERE lower(path) LIKE '%.jpg' OR lower(path) LIKE '%.jpeg'
+                OR lower(path) LIKE '%.jpe' OR lower(path) LIKE '%.jfif'
+                OR lower(path) LIKE '%.webp' OR lower(path) LIKE '%.png'
+                OR lower(path) LIKE '%.heic' OR lower(path) LIKE '%.heif'
+             ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 行を、中身が変わったときと同じに空にする（[`CHANGED_ROW_RESET`]。カメラは残す）。外したサムネイルは
+    /// 引き金が `thumb_trash` に積む。読み直しは `ids_missing_metadata` が拾う
+    pub fn reset_for_reread(&mut self, ids: &[i64]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            // 日は動かさない。`upsert_files` が中身の変わった行でするのと同じ（[`UNREAD_DAY_KEY`] の説明）——読み直すまでの
+            // 間ファイルの日付の日へ置くと、今日の先頭へ跳ぶ（PR #351）
+            let mut stmt = tx.prepare_cached(&format!(
+                "UPDATE media SET {CHANGED_ROW_RESET} WHERE id = ?1"
+            ))?;
+            for id in ids {
+                stmt.execute([id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// `width = 0` も対象に含める（第9部 段階H）。0は「読もうとして読めなかった」印で、
     /// コンテナを自前で解釈できない動画（`.m2ts` / `.avi`）がここに落ちる。OSのプロパティを
     /// 聞く道ができた後は取れるようになるので、既に走査済みのDBでも拾い直せるようにする。
@@ -3889,6 +4183,9 @@ impl Db {
 }
 
 /// 現在時刻のUnixエポックミリ秒（サムネイルLRUの利用時刻用）。
+/// [`Db::pregen_candidates`] の続きの位置（`day_key`, 並びの時刻, id）
+pub type PregenCursor = (i64, i64, i64);
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -5044,6 +5341,10 @@ mod tests {
         let ms = local_noon_ms(2024, 8, 11);
         db.upsert_files(&[scanned("a.jpg", 1, ms)]).unwrap();
         let rec = &db.list_all().unwrap()[0];
+        // 走査で入った直後は「読み込み中」の束。読めずに終わればファイルの日付の日へ
+        assert_eq!(rec.day_key, UNREAD_DAY_KEY);
+        db.settle_unread_day(rec.id).unwrap();
+        let rec = db.get_by_id(rec.id).unwrap().unwrap();
         assert_eq!(rec.day_key, 20240811, "mtime基準のday_key");
 
         // 撮影日時が確定したらday_keyは撮影日基準へ
@@ -5064,6 +5365,7 @@ mod tests {
             scanned("c.jpg", 1, d2),
         ])
         .unwrap();
+        db.settle_all_unread().unwrap();
 
         let summary = db.timeline_summary(crate::MediaFilter::All).unwrap();
         let keys: Vec<_> = summary.iter().map(|d| (d.day_key, d.count)).collect();
@@ -5111,6 +5413,7 @@ mod tests {
             scanned("d.heic", 1, d1 + 3000),
         ])
         .unwrap();
+        db.settle_all_unread().unwrap();
 
         let names = |kinds: Option<Vec<MediaKind>>| -> Vec<String> {
             let query = SearchQuery {
@@ -5157,6 +5460,7 @@ mod tests {
         let d1 = local_noon_ms(2024, 8, 11);
         db.upsert_files(&[scanned("a.jpg", 1, d1), scanned("b.jpg", 1, d1 + 1000)])
             .unwrap();
+        db.settle_all_unread().unwrap();
         let id = db
             .list_day(20240811, crate::MediaFilter::All)
             .unwrap()
@@ -5196,6 +5500,7 @@ mod tests {
             ),
         ])
         .unwrap();
+        db.settle_all_unread().unwrap();
 
         let memories = db.list_memories(24).unwrap();
         let got: Vec<_> = memories
@@ -5912,6 +6217,214 @@ mod tests {
 
         // 上限内なら何もしない
         assert!(db.evict_final_thumbs(2000, &empty).unwrap().is_empty());
+    }
+
+    /// 走査の本流（`apply_scan`）でも、新しく入った行は「読み込み中」の束。中身が変わった行は日を動かさない
+    #[test]
+    fn a_full_scan_puts_new_rows_in_the_unread_day() {
+        let mut db = Db::open_in_memory().unwrap();
+        let root = vec![PathBuf::from("r")];
+        let scan = |db: &mut Db, size, mtime| {
+            db.apply_scan(&[scanned("r/a.jpg", size, mtime)], &root, &root, None)
+                .unwrap()
+        };
+        scan(&mut db, 1, 1_557_057_600_000);
+        let id = id_of(&db, "r/a.jpg");
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+        // 中身が変わっても、まだ読んでいない行は束に居る
+        scan(&mut db, 2, 1_557_057_600_000);
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+        db.settle_unread_day(id).unwrap();
+        let day = db.get_by_id(id).unwrap().unwrap().day_key;
+        assert_eq!(day / 10000, 2019);
+        // 束を出た行は、中身が変わって更新日時が新しくなっても日を動かさない（読み直しで移る）
+        scan(&mut db, 3, 1_767_225_600_000);
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, day);
+    }
+
+    /// 読み直しへ回した行は、日を動かさない（読み直すまでの間、今日の先頭へ跳ばないように）
+    #[test]
+    fn a_row_reset_for_reread_keeps_its_day() {
+        let mut db = Db::open_in_memory().unwrap();
+        // mtime は 2019-05-05 ごろ、撮影日時は 2021 年
+        db.upsert_files(&[scanned("a.jpg", 1, 1_557_057_600_000)])
+            .unwrap();
+        let id = id_of(&db, "a.jpg");
+        db.update_shell_metadata(
+            id,
+            10,
+            10,
+            TakenAt::tag(Some(1_632_000_000_000), TakenSource::Os),
+        )
+        .unwrap();
+        let before = db.get_by_id(id).unwrap().unwrap().day_key;
+        db.reset_for_reread(&[id]).unwrap();
+        let r = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(r.day_key, before);
+        assert_eq!(r.taken_at_ms, None, "撮影日時は空にして読み直しへ");
+    }
+
+    /// SVG の「要らない」印（`thumbs::THUMB_STATE_NOT_NEEDED`）
+    const THUMB_STATE_NOT_NEEDED_FOR_TEST: i64 = 3;
+
+    /// 名前から id を引く（`list_all` の並びはパスの順ではない）
+    fn id_of(db: &Db, path: &str) -> i64 {
+        db.list_all()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.path == Path::new(path))
+            .unwrap()
+            .id
+    }
+
+    /// 前もって作った（まだ見ていない）絵は、見た絵より先に、撮影日の古い順に消える
+    #[test]
+    fn unviewed_thumbnails_go_first_oldest_taken_first() {
+        let mut db = Db::open_in_memory().unwrap();
+        // 入れる順（rowid）は撮影日の順と逆にしておく——並びが撮影日を見ていることを確かめるため
+        db.upsert_files(&[
+            scanned("new.jpg", 1, 3_000_000),
+            scanned("seen.jpg", 1, 2_000_000),
+            scanned("old.jpg", 1, 1_000_000),
+        ])
+        .unwrap();
+        let (old, new, seen) = (
+            id_of(&db, "old.jpg"),
+            id_of(&db, "new.jpg"),
+            id_of(&db, "seen.jpg"),
+        );
+        for id in [old, new, seen] {
+            db.update_thumb_path(id, Path::new(&format!("t/{id}.webp")), 2, Some(1000))
+                .unwrap();
+        }
+        // 見た絵は 2 時間前に使った（直近の守りの外）。前もって作った 2 枚は見ていない
+        set_thumb_used(&db, seen, now_ms() - 2 * 60 * 60 * 1000);
+        db.mark_thumb_unviewed(old).unwrap();
+        db.mark_thumb_unviewed(new).unwrap();
+
+        let empty = std::collections::HashSet::new();
+        // 上限 2500 → 2250 まで: 1 枚消す
+        let evicted = db.evict_final_thumbs(2500, &empty).unwrap();
+        assert_eq!(
+            evicted.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![old],
+            "見ていない絵のうち、撮影日の古いほうから"
+        );
+        // 上限 1000 → 900 まで: 残り 2 枚とも消えるが、見ていない new が先
+        let evicted = db.evict_final_thumbs(1000, &empty).unwrap();
+        assert_eq!(
+            evicted.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![new, seen]
+        );
+    }
+
+    /// 見れば「まだ見ていない」から抜ける（タッチが利用時刻を上げる）。本番でない行には印を付けない
+    #[test]
+    fn viewing_lifts_an_unviewed_thumbnail() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.jpg", 1, 1000), scanned("b.jpg", 1, 2000)])
+            .unwrap();
+        let (a, b) = (id_of(&db, "a.jpg"), id_of(&db, "b.jpg"));
+        db.update_thumb_path(a, Path::new("t/a.webp"), 2, Some(10))
+            .unwrap();
+        db.mark_thumb_unviewed(a).unwrap();
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None)
+            .unwrap();
+        db.mark_thumb_unviewed(b).unwrap();
+        let used = |id: i64| -> Option<i64> {
+            db.conn
+                .query_row("SELECT thumb_used_ms FROM media WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(used(a), Some(0));
+        assert_ne!(used(b), Some(0), "即席の行は対象外");
+        db.touch_thumbs(&[(a, 5_000)]).unwrap();
+        assert_eq!(
+            db.conn
+                .query_row("SELECT thumb_used_ms FROM media WHERE id = ?1", [a], |r| {
+                    r.get::<_, i64>(0)
+                })
+                .unwrap(),
+            5_000
+        );
+    }
+
+    /// 候補は本番の無い写真だけ、一覧と同じ新しい順に、続きの位置から読める
+    #[test]
+    fn pregen_candidates_walk_newest_first_and_skip_built_ones() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.jpg", 1, 1_000_000_000_000),
+            scanned("b.jpg", 1, 1_100_000_000_000),
+            scanned("c.jpg", 1, 1_200_000_000_000),
+            scanned("d.jpg", 1, 1_300_000_000_000),
+            scanned("e.jpg", 1, 1_400_000_000_000),
+        ])
+        .unwrap();
+        let id = |p: &str| id_of(&db, p);
+        let (a, b, c, d, e) = (
+            id("a.jpg"),
+            id("b.jpg"),
+            id("c.jpg"),
+            id("d.jpg"),
+            id("e.jpg"),
+        );
+        db.update_thumb_path(d, Path::new("t/d.webp"), 2, Some(1))
+            .unwrap(); // 済み
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None)
+            .unwrap(); // 即席は候補
+        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST)
+            .unwrap(); // SVG 相当は外れる
+        assert_eq!(db.pregen_candidate_count().unwrap(), 3);
+
+        let first = db.pregen_candidates(None, 2).unwrap();
+        assert_eq!(first.iter().map(|x| x.0).collect::<Vec<_>>(), vec![e, b]);
+        let rest = db.pregen_candidates(Some(first[1].1), 2).unwrap();
+        assert_eq!(rest.iter().map(|x| x.0).collect::<Vec<_>>(), vec![a]);
+        assert!(db.pregen_candidates(Some(rest[0].1), 2).unwrap().is_empty());
+    }
+
+    /// 「作り直す」は本番・即席・「絵が無い」の印を外し、SVG の「要らない」は残す。外したファイルは控えに積まれる
+    #[test]
+    fn rebuilding_clears_every_thumbnail_and_queues_the_files() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.jpg", 1, 1000),
+            scanned("b.jpg", 1, 2000),
+            scanned("c.svg", 1, 3000),
+            scanned("d.cr3", 1, 4000),
+        ])
+        .unwrap();
+        let (a, b, c, d) = (
+            id_of(&db, "a.jpg"),
+            id_of(&db, "b.jpg"),
+            id_of(&db, "c.svg"),
+            id_of(&db, "d.cr3"),
+        );
+        db.update_thumb_path(a, Path::new("t/a.webp"), 2, Some(10))
+            .unwrap();
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None)
+            .unwrap();
+        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST)
+            .unwrap();
+        db.update_thumb_state(d, 4).unwrap();
+        assert_eq!(db.reset_all_thumbs().unwrap(), 3);
+        for id in [a, b, d] {
+            let r = db.get_by_id(id).unwrap().unwrap();
+            assert_eq!((r.thumb_state, r.thumb_path), (0, None));
+        }
+        assert_eq!(db.get_by_id(c).unwrap().unwrap().thumb_state, 3);
+        let mut trash: Vec<String> = db
+            .thumb_trash_batch(10, 0)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.0)
+            .collect();
+        trash.sort();
+        assert_eq!(trash, vec!["t/a.webp".to_string(), "t/b.jpg".to_string()]);
+        assert_eq!(db.thumb_cache_stats().unwrap(), (0, 0));
     }
 
     #[test]

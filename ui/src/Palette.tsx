@@ -84,6 +84,7 @@ export default function Palette({
         const digits = dateQ.replace(/[^0-9]/g, "");
         for (const day of summary) {
           if (out.length >= MAX_PER_GROUP) break;
+          if (day.day_key <= 0) continue; // 「読み込み中」の束は日付ではない
           const key = String(day.day_key);
           const label = formatDayKey(day.day_key);
           if (key.startsWith(digits) || label.includes(q)) {
@@ -99,7 +100,7 @@ export default function Palette({
       }
     } else {
       // 入力前は直近の日を出す（「とりあえず開く」を最短にする）
-      for (const day of summary.slice(0, 3)) {
+      for (const day of summary.filter((d) => d.day_key > 0).slice(0, 3)) {
         out.push({
           group: t.paletteGroupRecentDays,
           icon: "calendar",

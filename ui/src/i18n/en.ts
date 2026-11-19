@@ -559,6 +559,48 @@ export const en: Dict = {
   settingsAutoplayOpenWindows: "Open Windows AutoPlay settings",
   settingsGraphics: "Graphics",
   settingsHardwareAccelerationToggle: "Use graphics acceleration",
+  bgAutoThumbs: (n: number) => `Creating thumbnails in the background (${num(n)} left)`,
+  bgAutoThumbsShort: (n: number) => `Thumbnails: ${num(n)} left`,
+  bgAutoThumbsPaused: (n: number) => `Thumbnail creation paused (${num(n)} left)`,
+  bgAutoThumbsPausedShort: (n: number) => `Paused: ${num(n)} left`,
+  autoThumbsHeading: "Creating thumbnails in the background",
+  autoThumbsPausedHeading: "Thumbnail creation is paused",
+  autoThumbsBody: (n: number) =>
+    `${num(n)} left. Photos will show up right away even when you scroll fast with the timeline. Photos that are only in the cloud are skipped.`,
+  autoThumbsPause: "Pause",
+  autoThumbsResume: "Resume",
+  autoThumbsOpenSettings: "Open Settings",
+  settingsThumbnails: "Thumbnails",
+  settingsAutoThumbsToggle: "Create thumbnails automatically",
+  settingsAutoThumbsNote:
+    "Creates thumbnails for your whole library in the background, newest photos first, so photos show up right away even when you scroll fast through years you haven’t opened yet. This uses the CPU and disk while it runs. Photos that are only in the cloud (such as OneDrive “online-only” files) are never opened. When this is off, thumbnails are created only for the photos you view.",
+  settingsAutoThumbsAtCap: "The thumbnail storage is 80% full, so automatic creation has stopped.",
+  settingsThumbCap: "Thumbnail storage limit",
+  settingsThumbCapUnlimited: "No limit",
+  settingsThumbCapUsage: (size: string, n: number) => `Now using ${size} (thumbnails: ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `The limit holds about ${num(n)} thumbnails. Beyond that, thumbnails of photos you haven’t looked at for a while are removed first (your photos themselves are not touched).`,
+  settingsThumbCapNoLimit: "There is no limit; thumbnails are never removed.",
+  settingsRebuildThumbs: "Rebuild thumbnails",
+  settingsRebuildThumbsNote:
+    "Use this when thumbnails look broken or still show an old orientation. All current thumbnails are deleted and created again. Your photos themselves are not touched.",
+  settingsRebuildThumbsButton: "Rebuild…",
+  rebuildThumbsConfirm:
+    "Delete all current thumbnails and create them again? Your photos themselves are not touched. Thumbnails are recreated as you view photos.",
+  rebuildThumbsOk: "Rebuild",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "Photos being read",
+  calendarUnread: (n: number) =>
+    `${num(n)} ${one(n, "photo is", "photos are")} still being read. ${one(n, "It", "They")} will appear here once ${one(n, "its date is", "their dates are")} known.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filter by year taken",
+    camera: "Filter by camera",
+    kind: "Filter by type (photo, raw, video)",
+    folder: "Filter by folder name",
+    fav: "Favorites (★) only",
+    pick: "Picks (⚑) only",
+  },
   settingsHardwareAccelerationNote:
     "If the mouse pointer looks frozen while you view photos in full screen, turning this off may fix it (seen on a PC with AMD graphics). With it off, video playback uses more CPU. The change takes effect the next time you start pictkura.",
   settingsImportWaitingFrom: (path: string) =>

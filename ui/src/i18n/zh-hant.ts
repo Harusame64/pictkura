@@ -610,6 +610,46 @@ export const zhHant: Dict = {
   settingsAutoplayOpenWindows: "開啟 Windows 自動播放設定",
   settingsGraphics: "圖形",
   settingsHardwareAccelerationToggle: "使用圖形加速",
+  bgAutoThumbs: (n: number) => `正在背景產生縮圖（還剩 ${num(n)} 張）`,
+  bgAutoThumbsShort: (n: number) => `縮圖 還剩 ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `縮圖產生已暫停（還剩 ${num(n)} 張）`,
+  bgAutoThumbsPausedShort: (n: number) => `已暫停 還剩 ${num(n)}`,
+  autoThumbsHeading: "正在背景產生縮圖",
+  autoThumbsPausedHeading: "縮圖產生已暫停",
+  autoThumbsBody: (n: number) =>
+    `還剩 ${num(n)} 張。即使用時間軸快速瀏覽，相片也能立即顯示。只在雲端的相片會略過。`,
+  autoThumbsPause: "暫停",
+  autoThumbsResume: "繼續",
+  autoThumbsOpenSettings: "開啟設定",
+  settingsThumbnails: "縮圖",
+  settingsAutoThumbsToggle: "自動產生縮圖",
+  settingsAutoThumbsNote:
+    "在背景為整個圖庫產生縮圖，從最新的相片開始。即使快速瀏覽還沒開啟過的年份，相片也能立即顯示。產生期間會使用 CPU 和磁碟。只在雲端的相片（如 OneDrive 的「僅限線上」檔案）絕不會開啟。關閉時，只為你檢視過的相片產生縮圖。",
+  settingsAutoThumbsAtCap: "縮圖儲存空間已用到 80%，自動產生已停止。",
+  settingsThumbCap: "縮圖儲存空間上限",
+  settingsThumbCapUnlimited: "無上限",
+  settingsThumbCapUsage: (size: string, n: number) => `目前已使用 ${size}（${num(n)} 張）。`,
+  settingsThumbCapFits: (n: number) =>
+    `上限內約可存放 ${num(n)} 張。超過後，會先刪除一段時間沒看過的相片的縮圖（相片本身不會被刪除）。`,
+  settingsThumbCapNoLimit: "沒有上限，縮圖不會被刪除。",
+  settingsRebuildThumbs: "重新產生縮圖",
+  settingsRebuildThumbsNote:
+    "縮圖顯示異常或仍是舊方向時使用。會刪除目前所有縮圖並重新產生。相片本身不會被刪除。",
+  settingsRebuildThumbsButton: "重新產生…",
+  rebuildThumbsConfirm: "要刪除目前所有縮圖並重新產生嗎？相片本身不會被刪除。縮圖會在你檢視相片時依序重新產生。",
+  rebuildThumbsOk: "重新產生",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "正在讀取",
+  calendarUnread: (n: number) => `還有 ${num(n)} 張相片正在讀取拍攝日期，讀取後會顯示在這裡。`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "依拍攝年份篩選",
+    camera: "依相機篩選",
+    kind: "依類型篩選（photo、raw、video）",
+    folder: "依資料夾名稱篩選",
+    fav: "僅限收藏（★）",
+    pick: "僅限已選（⚑）",
+  },
   settingsHardwareAccelerationNote:
     "如果全螢幕檢視相片時滑鼠指標似乎卡住，關閉此選項可能有助於解決此問題（已在配備 AMD 顯示卡的電腦上確認）。關閉後，播放影片會佔用更多 CPU。變更會在下次啟動 pictkura 時生效。",
   settingsImportWaitingFrom: (path: string) =>

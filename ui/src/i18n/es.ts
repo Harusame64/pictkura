@@ -632,6 +632,47 @@ export const es: Dict = {
   settingsAutoplayOpenWindows: "Abrir la configuración de Reproducción automática de Windows",
   settingsGraphics: "Gráficos",
   settingsHardwareAccelerationToggle: "Usar aceleración gráfica",
+  bgAutoThumbs: (n: number) => `Creando miniaturas en segundo plano (quedan ${num(n)})`,
+  bgAutoThumbsShort: (n: number) => `Miniaturas: quedan ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `Creación de miniaturas en pausa (quedan ${num(n)})`,
+  bgAutoThumbsPausedShort: (n: number) => `En pausa: quedan ${num(n)}`,
+  autoThumbsHeading: "Creando miniaturas en segundo plano",
+  autoThumbsPausedHeading: "La creación de miniaturas está en pausa",
+  autoThumbsBody: (n: number) =>
+    `Quedan ${num(n)}. Las fotos aparecerán al instante aunque recorras rápido la cronología. Las fotos que solo están en la nube se omiten.`,
+  autoThumbsPause: "Pausar",
+  autoThumbsResume: "Reanudar",
+  autoThumbsOpenSettings: "Abrir ajustes",
+  settingsThumbnails: "Miniaturas",
+  settingsAutoThumbsToggle: "Crear miniaturas automáticamente",
+  settingsAutoThumbsNote:
+    "Crea en segundo plano las miniaturas de toda la fototeca, empezando por las fotos más recientes, para que las fotos aparezcan al instante aunque recorras rápido años que aún no has abierto. Mientras tanto usa la CPU y el disco. Las fotos que solo están en la nube (como los archivos «solo en línea» de OneDrive) nunca se abren. Si está desactivado, solo se crean miniaturas de las fotos que ves.",
+  settingsAutoThumbsAtCap: "El espacio de miniaturas está al 80 %, así que la creación automática se ha detenido.",
+  settingsThumbCap: "Límite de espacio para miniaturas",
+  settingsThumbCapUnlimited: "Sin límite",
+  settingsThumbCapUsage: (size: string, n: number) => `En uso ahora: ${size} (miniaturas: ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `En el límite caben unas ${num(n)} miniaturas. Si se supera, se eliminan primero las miniaturas de las fotos que no has mirado en un tiempo (tus fotos no se tocan).`,
+  settingsThumbCapNoLimit: "No hay límite; las miniaturas nunca se eliminan.",
+  settingsRebuildThumbs: "Volver a crear las miniaturas",
+  settingsRebuildThumbsNote:
+    "Útil cuando las miniaturas se ven dañadas o conservan una orientación antigua. Se eliminan todas las miniaturas actuales y se vuelven a crear. Tus fotos no se tocan.",
+  settingsRebuildThumbsButton: "Volver a crear…",
+  rebuildThumbsConfirm:
+    "¿Eliminar todas las miniaturas actuales y volver a crearlas? Tus fotos no se tocan. Las miniaturas se vuelven a crear a medida que ves las fotos.",
+  rebuildThumbsOk: "Volver a crear",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "En lectura",
+  calendarUnread: (n: number) => `Fotos aún en lectura: ${num(n)}. Aparecerán aquí cuando se conozca su fecha.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filtrar por año de la toma",
+    camera: "Filtrar por cámara",
+    kind: "Filtrar por tipo (photo, raw, video)",
+    folder: "Filtrar por nombre de carpeta",
+    fav: "Solo favoritos (★)",
+    pick: "Solo seleccionadas (⚑)",
+  },
   settingsHardwareAccelerationNote:
     "Si el puntero del ratón parece congelado mientras ves fotos en pantalla completa, desactivar esta opción puede solucionarlo (se ha observado en un PC con gráficos AMD). Si está desactivada, la reproducción de vídeos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
   settingsImportWaitingFrom: (path: string) =>

@@ -607,6 +607,46 @@ export const zh: Dict = {
   settingsAutoplayOpenWindows: "打开 Windows 自动播放设置",
   settingsGraphics: "图形",
   settingsHardwareAccelerationToggle: "使用图形加速",
+  bgAutoThumbs: (n: number) => `正在后台生成缩略图（还剩 ${num(n)} 张）`,
+  bgAutoThumbsShort: (n: number) => `缩略图 还剩 ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `缩略图生成已暂停（还剩 ${num(n)} 张）`,
+  bgAutoThumbsPausedShort: (n: number) => `已暂停 还剩 ${num(n)}`,
+  autoThumbsHeading: "正在后台生成缩略图",
+  autoThumbsPausedHeading: "缩略图生成已暂停",
+  autoThumbsBody: (n: number) =>
+    `还剩 ${num(n)} 张。即使用时间轴快速浏览，照片也能立即显示。只在云端的照片会跳过。`,
+  autoThumbsPause: "暂停",
+  autoThumbsResume: "继续",
+  autoThumbsOpenSettings: "打开设置",
+  settingsThumbnails: "缩略图",
+  settingsAutoThumbsToggle: "自动生成缩略图",
+  settingsAutoThumbsNote:
+    "在后台为整个图库生成缩略图，从最新的照片开始。即使快速浏览还没打开过的年份，照片也能立即显示。生成期间会占用 CPU 和磁盘。只在云端的照片（如 OneDrive 的“仅联机”文件）绝不会打开。关闭时，只为你查看过的照片生成缩略图。",
+  settingsAutoThumbsAtCap: "缩略图存储空间已用到 80%，自动生成已停止。",
+  settingsThumbCap: "缩略图存储空间上限",
+  settingsThumbCapUnlimited: "无上限",
+  settingsThumbCapUsage: (size: string, n: number) => `当前已用 ${size}（${num(n)} 张）。`,
+  settingsThumbCapFits: (n: number) =>
+    `上限内约可存放 ${num(n)} 张。超出后，会先删除一段时间没看过的照片的缩略图（照片本身不会被删除）。`,
+  settingsThumbCapNoLimit: "没有上限，缩略图不会被删除。",
+  settingsRebuildThumbs: "重新生成缩略图",
+  settingsRebuildThumbsNote:
+    "缩略图显示异常或仍是旧方向时使用。会删除当前所有缩略图并重新生成。照片本身不会被删除。",
+  settingsRebuildThumbsButton: "重新生成…",
+  rebuildThumbsConfirm: "删除当前所有缩略图并重新生成吗？照片本身不会被删除。缩略图会在你查看照片时依次重新生成。",
+  rebuildThumbsOk: "重新生成",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "正在读取",
+  calendarUnread: (n: number) => `还有 ${num(n)} 张照片正在读取拍摄日期，读取后会显示在这里。`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "按拍摄年份筛选",
+    camera: "按相机筛选",
+    kind: "按类型筛选（photo、raw、video）",
+    folder: "按文件夹名称筛选",
+    fav: "仅收藏（★）",
+    pick: "仅已选（⚑）",
+  },
   settingsHardwareAccelerationNote:
     "如果全屏查看照片时鼠标指针似乎卡住，关闭此选项可能有助于解决该问题（已在配备 AMD 显卡的电脑上确认）。关闭后，播放视频会占用更多 CPU。更改将在下次启动 pictkura 时生效。",
   settingsImportWaitingFrom: (path: string) =>

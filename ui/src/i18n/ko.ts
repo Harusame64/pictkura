@@ -606,6 +606,47 @@ export const ko: Dict = {
   settingsAutoplayOpenWindows: "Windows 자동 실행 설정 열기",
   settingsGraphics: "그래픽",
   settingsHardwareAccelerationToggle: "그래픽 가속 사용",
+  bgAutoThumbs: (n: number) => `백그라운드에서 미리보기 이미지 만드는 중(${num(n)}장 남음)`,
+  bgAutoThumbsShort: (n: number) => `미리보기 ${num(n)}장 남음`,
+  bgAutoThumbsPaused: (n: number) => `미리보기 이미지 만들기 일시 중지됨(${num(n)}장 남음)`,
+  bgAutoThumbsPausedShort: (n: number) => `일시 중지 ${num(n)}장 남음`,
+  autoThumbsHeading: "백그라운드에서 미리보기 이미지를 만들고 있습니다",
+  autoThumbsPausedHeading: "미리보기 이미지 만들기가 일시 중지되었습니다",
+  autoThumbsBody: (n: number) =>
+    `${num(n)}장 남았습니다. 타임라인으로 빠르게 넘겨도 사진이 바로 표시됩니다. 클라우드에만 있는 사진은 건너뜁니다.`,
+  autoThumbsPause: "일시 중지",
+  autoThumbsResume: "다시 시작",
+  autoThumbsOpenSettings: "설정 열기",
+  settingsThumbnails: "미리보기 이미지",
+  settingsAutoThumbsToggle: "미리보기 이미지 자동 생성",
+  settingsAutoThumbsNote:
+    "라이브러리 전체의 미리보기 이미지를 최신 사진부터 백그라운드에서 미리 만들어 둡니다. 아직 열어 보지 않은 연도를 빠르게 넘겨도 사진이 바로 표시됩니다. 만드는 동안 CPU와 디스크를 사용합니다. 클라우드에만 있는 사진(OneDrive의 ‘온라인 전용’ 등)은 열지 않습니다. 끄면 표시한 사진의 미리보기 이미지만 만듭니다.",
+  settingsAutoThumbsAtCap: "미리보기 이미지 저장 공간이 80%에 도달해 자동 생성을 멈췄습니다.",
+  settingsThumbCap: "미리보기 이미지 저장 공간 한도",
+  settingsThumbCapUnlimited: "제한 없음",
+  settingsThumbCapUsage: (size: string, n: number) => `현재 ${size} 사용 중(${num(n)}장). `,
+  settingsThumbCapFits: (n: number) =>
+    `한도까지 약 ${num(n)}장이 들어갑니다. 넘으면 한동안 보지 않은 사진의 미리보기 이미지부터 지웁니다(사진 자체는 지워지지 않습니다).`,
+  settingsThumbCapNoLimit: "한도가 없으며, 미리보기 이미지를 지우지 않습니다.",
+  settingsRebuildThumbs: "미리보기 이미지 다시 만들기",
+  settingsRebuildThumbsNote:
+    "미리보기 이미지가 깨져 보이거나 예전 방향 그대로일 때 사용합니다. 현재 미리보기 이미지를 모두 지우고 다시 만듭니다. 사진 자체는 지워지지 않습니다.",
+  settingsRebuildThumbsButton: "다시 만들기…",
+  rebuildThumbsConfirm:
+    "현재 미리보기 이미지를 모두 지우고 다시 만들까요? 사진 자체는 지워지지 않습니다. 표시하는 사진부터 차례로 다시 만듭니다.",
+  rebuildThumbsOk: "다시 만들기",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "읽는 중",
+  calendarUnread: (n: number) => `촬영일을 읽는 중인 사진이 ${num(n)}장 있습니다. 다 읽으면 여기에 표시됩니다.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "촬영 연도로 필터링",
+    camera: "카메라로 필터링",
+    kind: "종류로 필터링 (photo, raw, video)",
+    folder: "폴더 이름으로 필터링",
+    fav: "즐겨찾기(★)만",
+    pick: "선별한 사진(⚑)만",
+  },
   settingsHardwareAccelerationNote:
     "사진을 전체 화면으로 볼 때 마우스 포인터가 멈춘 것처럼 보이는 경우, 이 설정을 끄면 해결될 수 있습니다(AMD 그래픽이 탑재된 PC에서 확인됨). 설정을 끄면 동영상 재생 시 CPU 사용량이 늘어납니다. 변경 사항은 다음에 pictkura를 실행할 때 적용됩니다.",
   settingsImportWaitingFrom: (path: string) =>
