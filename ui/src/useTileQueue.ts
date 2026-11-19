@@ -50,6 +50,35 @@ export class TileLoader implements TileAttach {
   private readonly overdue = new Set<string>();
   /** 時間切れで早めに枠を空け、まだ読み途中の鍵（枠の数まで） */
   private readonly early = new Set<string>();
+  /**
+   * SPIKE: スクロールの速さ（px/ms、下向きが正。指数でならす）と、何 ms 先の画面からの距離で選ぶか。
+   * 一気送りでは、いま見えているタイルは 40〜80ms で画面を去る。いまの画面に近い順だと、去るタイルを先に読み、
+   * これから入るタイルが後回しになった（win2: 読み始めが画面に入ってから）。止まっていれば速さ 0＝今までどおり
+   */
+  private velocity = 0;
+  private lastScroll: { top: number; t: number } | null = null;
+  private readonly leadMs: number = (() => {
+    try {
+      const v = Number(globalThis.localStorage?.getItem("pk.spike.leadMs"));
+      return Number.isFinite(v) && v >= 0 ? v : 120;
+    } catch {
+      return 120;
+    }
+  })();
+  private readonly onScroll = () => {
+    const root = this.root;
+    if (!root) return;
+    const now = performance.now();
+    const top = root.scrollTop;
+    const last = this.lastScroll;
+    this.lastScroll = { top, t: now };
+    if (!last) return;
+    const dt = now - last.t;
+    if (dt <= 0) return;
+    // 100ms 以上あいたら止まっていた——ならさずに今の速さから始める
+    const v = (top - last.top) / dt;
+    this.velocity = dt > 100 ? v : this.velocity * 0.5 + v * 0.5;
+  };
 
   /** `makeImage` は試験が差し替える口 */
   constructor(
@@ -73,6 +102,7 @@ export class TileLoader implements TileAttach {
    */
   watch(root: Element): () => void {
     this.root = root;
+    root.addEventListener("scroll", this.onScroll, { passive: true });
     this.observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -84,6 +114,7 @@ export class TileLoader implements TileAttach {
     );
     for (const el of this.keys.keys()) this.observer.observe(el);
     return () => {
+      root.removeEventListener("scroll", this.onScroll);
       this.observer?.disconnect();
       this.observer = null;
       this.root = null;
@@ -194,13 +225,19 @@ export class TileLoader implements TileAttach {
     const box = root.getBoundingClientRect();
     const cover = this.opts.coveredBy === undefined ? ".wizard-toolbar" : this.opts.coveredBy;
     const bar = cover === null ? undefined : root.querySelector(cover)?.getBoundingClientRect();
-    const top = Math.max(box.top, bar?.bottom ?? box.top);
+    const top0 = Math.max(box.top, bar?.bottom ?? box.top);
+    // 何 ms 先の画面か: 最後のスクロールから 150ms 過ぎていたら止まったとみる。先へずらすのは1画面半まで
+    const idle = this.lastScroll === null || performance.now() - this.lastScroll.t > 150;
+    const span = box.bottom - top0;
+    const shift = idle ? 0 : Math.max(-1.5 * span, Math.min(1.5 * span, this.velocity * this.leadMs));
+    const top = top0 + shift;
+    const bottom = box.bottom + shift;
     return (key) => {
       const el = this.elements.get(key);
       if (!el) return Infinity;
       const r = el.getBoundingClientRect();
       if (r.bottom <= top) return top - r.bottom + 1;
-      if (r.top >= box.bottom) return r.top - box.bottom + 1;
+      if (r.top >= bottom) return r.top - bottom + 1;
       return 0;
     };
   }
