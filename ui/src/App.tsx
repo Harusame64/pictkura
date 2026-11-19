@@ -24,6 +24,13 @@ import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
 import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
+const ATLAS_ON = (() => {
+  try {
+    return globalThis.localStorage?.getItem("pk.spike.atlas") !== "0";
+  } catch {
+    return true;
+  }
+})();
 import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
@@ -113,6 +120,7 @@ import {
   scopeMedia,
   visibleMediaIds,
   setVisiblePriority,
+  atlasSrc,
   demoteThumbnails,
   syncNow,
   thumbSrc,
@@ -495,7 +503,7 @@ type Cell = {
 type Row =
   | { kind: "header"; dayKey: number; label: string; count: number }
   | { kind: "cells"; dayKey: number; cells: Cell[]; height: number }
-  | { kind: "placeholder"; dayKey: number; height: number }
+  | { kind: "placeholder"; dayKey: number; height: number; cols: number; count: number }
   /**
    * 写真の少ない日（その日の写真が1行に収まる日）を、同じ月の中で横に並べた行。日ごとに見出しを上に置く
    * （デザインレビュー: 1枚の日が縦に積まれ、右が大きく空いていた）。`dayKey` は先頭の日
@@ -3754,6 +3762,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           kind: "placeholder",
           dayKey: day.day_key,
           height: nRows * (target + GAP),
+          cols: perRow,
+          count: day.count,
         });
         continue;
       }
@@ -9485,7 +9495,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       ) : row.kind === "placeholder" ? (
                         <div
                           className="placeholder-row"
-                          style={{ height: row.height - GAP }}
+                          style={{
+                            height: row.height - GAP,
+                            // SPIKE: まだ中身を読んでいない日に、その日の小さな絵を1枚で敷く（帯で速く動かす間の「紙」）
+                            ...(ATLAS_ON && !filtering && kind === "all"
+                              ? {
+                                  backgroundImage: `url("${atlasSrc(row.dayKey, row.cols, row.count)}")`,
+                                  backgroundSize: `100% ${row.height}px`,
+                                  backgroundRepeat: "no-repeat",
+                                }
+                              : {}),
+                          }}
                         />
                       ) : row.kind === "pack" ? (
                         // 写真の少ない日を1行に並べる（デザインレビュー）。日ごとに見出しを上に置く

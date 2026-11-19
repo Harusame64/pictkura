@@ -38,6 +38,9 @@ pub enum MediaTarget {
     /// URLのエスケープ規則とぶつかるため、**UTF-8バイト列の16進**で運ぶ。
     /// これならURLに現れるのは `[0-9a-f]` だけで、どのWebViewの正規化とも衝突しない。
     Source { path: std::path::PathBuf },
+    /// SPIKE: その日の写真の小さな絵を1枚に並べたもの（`atlas-<列の数>/<day_key>`）。帯で速く動かしている間、
+    /// まだ中身を読んでいない日の場所に敷く
+    Atlas { day: i64, cols: u32 },
 }
 
 /// 16進文字列をバイト列へ戻す（奇数長・16進以外はNone）。
@@ -121,6 +124,13 @@ pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
                     ),
                 },
                 id: payload.parse().ok()?,
+            })
+        }
+        kind if kind.starts_with("atlas-") => {
+            let cols: u32 = kind["atlas-".len()..].parse().ok()?;
+            Some(MediaTarget::Atlas {
+                day: payload.parse().ok()?,
+                cols: cols.clamp(1, 64),
             })
         }
         "src" => {

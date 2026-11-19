@@ -1134,6 +1134,10 @@ export const thumbSrcOf = (
   thumbState: number,
 ) => convertFileSrc(`thumb/${id}`, "media") + `?v=${mtimeMs}-${rev}-${thumbState}`;
 
+/** SPIKE: その日の小さな絵を `cols` 列に並べた1枚（`atlas_response`）。`n` は版の印（枚数が変われば読み直す） */
+export const atlasSrc = (day: number, cols: number, n: number) =>
+  convertFileSrc(`atlas-${cols}/${day}`, "media") + `?n=${n}`;
+
 export const thumbSrc = (item: MediaItem) =>
   thumbSrcOf(item.id, item.mtime_ms, item.rev, item.thumb_state);
 

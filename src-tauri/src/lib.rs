@@ -7526,6 +7526,41 @@ fn worker_makes_thumb(thumb_state: i64) -> bool {
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
+/// SPIKE: その日の写真のサムネイル（即席でも本番でも、あるものだけ）を 64×48 に縮めて、`cols` 列に並べた1枚の JPEG。
+/// サムネイルの無い写真の升は地の灰色。作ったものは日と列の数と「絵のある枚数」で覚える
+fn atlas_response(state: &AppState, day: i64, cols: u32) -> Response<Vec<u8>> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    const CW: u32 = 64;
+    const CH: u32 = 48;
+    static CACHE: OnceLock<Mutex<HashMap<(i64, u32, usize), Vec<u8>>>> = OnceLock::new();
+    let records = state
+        .read_pool
+        .with(|db| db.list_day(day, pictkura_core::MediaFilter::All))
+        .unwrap_or_default();
+    let with_thumb = records.iter().filter(|r| r.thumb_path.is_some()).count();
+    let key = (day, cols, with_thumb);
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let hit = lock_ok(cache).get(&key).cloned();
+    let bytes = match hit {
+        Some(b) => b,
+        None => {
+            let b = pictkura_core::thumbs::day_atlas(&records, cols, CW, CH).unwrap_or_default();
+            let mut c = lock_ok(cache);
+            if c.len() > 400 {
+                c.clear();
+            }
+            c.insert(key, b.clone());
+            b
+        }
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "image/jpeg")
+        .body(bytes)
+        .unwrap_or_else(|_| server_error())
+}
+
 fn handle_media_request(
     state: &AppState,
     url: &str,
@@ -7547,6 +7582,7 @@ fn handle_media_request(
         MediaTarget::Library { kind, id } => (kind, id),
         // 取り込み元のプレビュー（第5部 段階E）: DBを通らずファイルから直接作る
         MediaTarget::Source { path } => return source_preview_response(state, &path),
+        MediaTarget::Atlas { day, cols } => return atlas_response(state, day, cols),
     };
     let record = match record_of(state, id) {
         Ok(Some(r)) => r,

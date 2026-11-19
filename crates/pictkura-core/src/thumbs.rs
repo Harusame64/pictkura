@@ -2361,6 +2361,28 @@ const MAX_FAILURES: u32 = 3;
 /// 収まり、帯を速く送ったときの通り過ぎた写真は残さない長さ
 const PRIORITY_MAX: usize = 512;
 
+/// SPIKE: 写真の行のサムネイル（あるものだけ）を `cw`×`ch` に縮めて `cols` 列に並べた1枚の JPEG（`src-tauri` の
+/// `atlas_response`）。サムネイルの無い写真の升は地の灰色
+pub fn day_atlas(records: &[crate::MediaRecord], cols: u32, cw: u32, ch: u32) -> Option<Vec<u8>> {
+    let n = records.len().max(1) as u32;
+    let rows = n.div_ceil(cols);
+    let mut canvas = image::RgbImage::from_pixel(cols * cw, rows * ch, image::Rgb([46, 44, 42]));
+    for (i, r) in records.iter().enumerate() {
+        let Some(p) = r.thumb_path.as_deref() else {
+            continue;
+        };
+        let Some(img) = crate::jpeg::decode_scaled(p, cw.max(ch) * 2) else {
+            continue;
+        };
+        let cell = img
+            .resize_to_fill(cw, ch, image::imageops::FilterType::Triangle)
+            .to_rgb8();
+        let (x, y) = ((i as u32 % cols) * cw, (i as u32 / cols) * ch);
+        image::imageops::replace(&mut canvas, &cell, x as i64, y as i64);
+    }
+    crate::jpeg::encode_rgb(&canvas, 70, crate::jpeg::ChromaSampling::Half)
+}
+
 /// 可視領域優先のジョブキュー。
 struct QueueState {
     /// 優先ジョブ（可視領域のID）。先頭から処理され、高品質生成まで行う
