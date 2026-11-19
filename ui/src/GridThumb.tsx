@@ -2,6 +2,14 @@ import { useLayoutEffect, useReducer, useRef } from "react";
 import { paintable, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
 import type { TileAttach } from "./useTileQueue";
 
+const DIRECT_ON = (() => {
+  try {
+    return globalThis.localStorage?.getItem("pk.spike.direct") !== "0";
+  } catch {
+    return true;
+  }
+})();
+
 /** タイルごとの鍵（同じ写真のタイルが同時に2枚ありうるので、URL とは別に振る） */
 let seq = 0;
 
@@ -19,6 +27,7 @@ export function GridThumb({
   id,
   day,
   url,
+  direct,
   label,
   loader,
   recent,
@@ -33,6 +42,8 @@ export function GridThumb({
    */
   day?: number;
   url: string;
+  /** SPIKE: サムネイル（即席でも本番でも）がもうある。列を通さず、すぐ img に入れる（pk.spike.direct=0 で切る） */
+  direct?: boolean;
   label: string;
   loader: TileAttach;
   recent: RecentThumbs;
@@ -60,6 +71,15 @@ export function GridThumb({
       return;
     }
     paintedRef.current = false;
+    // SPIKE: サムネイルがもうある写真は、列を通さずに img へ直接入れる（1.0.2 と同じく DOM に入った瞬間から読む。
+    // 小さな絵は読むのも展開するのも安い。列で絞るのは原本を読むときだけでよい、かを測る）
+    if (direct && DIRECT_ON) {
+      el.src = src;
+      el.setAttribute("data-shown", "");
+      recent.add(src, src);
+      paintedRef.current = true;
+      return;
+    }
     // 知らせが来ていれば、その数を URL に足して問い直す（同じ URL は macOS で前の空の絵が返りうる。`BlankWaiters`）
     const asked = waiters.count(id);
     const ask = asked === 0 ? src : `${src}&ask=${asked}`;
@@ -96,7 +116,7 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, wakes]);
+  }, [src, loader, recent, waiters, id, wakes, direct]);
   // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、絵が出る前なら
   // 作る列から降ろす（`BlankWaiters.leave`）
   useLayoutEffect(

@@ -9325,6 +9325,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               <GridThumb
                                 // 絵は列で読む（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる）
                                 url={thumbSrc(cell.item)}
+                                direct={cell.item.thumb_state >= 1}
                                 label={cell.item.file_name}
                                 loader={gridLoader}
                                 recent={recentThumbs}
