@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { formatMonth, formatMonthOnly, t } from "./i18n";
-import { railDrag, RAIL_DWELL_MS } from "./gridThumbs";
+import { railDrag, RAIL_DWELL_MS, RAIL_SLOW_PXS } from "./gridThumbs";
 import { year } from "./i18n/plural.ts";
 import {
   dayKeyAt,
@@ -138,17 +138,38 @@ export function ScrubRail({
   const frame = useRef(0);
   // 掴んで送っている間の、つまみの仮の位置（指の所）。一覧が追いつくまで、つまみは指に付いて動く
   const [dragFraction, setDragFraction] = useState<number | null>(null);
-  // SPIKE: 掴んで**動かしている**間を一覧のタイルへ知らせる（`gridThumbs.ts` の `railDrag`）。掴んだまま
-  // `RAIL_DWELL_MS` 動かなければ、掴んだままでも読み始める（指を置いて見ているときに何も出ないのは寂しい。利用者）
+  // SPIKE: 掴んで**速く動かしている**間を一覧のタイルへ知らせる（`gridThumbs.ts` の `railDrag`）。人の手は止めた
+  // つもりでも揺れるので、「止まったら」ではなく「中身が遅くなったら」読み始める（利用者）。中身の速さ（px/秒、
+  // 指数でならす）が `RAIL_SLOW_PXS` を下回るか、`RAIL_DWELL_MS` 動かなければ読む
+  const dragging = dragFraction !== null;
   useEffect(() => {
-    if (dragFraction === null) {
+    const el = scrollRef.current;
+    if (!dragging || !el) {
       railDrag.set(false);
       return;
     }
+    let last = { top: el.scrollTop, t: performance.now() };
+    let speed = Infinity;
+    let idle = 0;
     railDrag.set(true);
-    const t = window.setTimeout(() => railDrag.set(false), RAIL_DWELL_MS);
-    return () => window.clearTimeout(t);
-  }, [dragFraction]);
+    const onScroll = () => {
+      const now = performance.now();
+      const dt = now - last.t;
+      if (dt <= 0) return;
+      const v = (Math.abs(el.scrollTop - last.top) / dt) * 1000;
+      last = { top: el.scrollTop, t: now };
+      speed = speed === Infinity ? v : speed * 0.6 + v * 0.4;
+      railDrag.set(speed > RAIL_SLOW_PXS);
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => railDrag.set(false), RAIL_DWELL_MS);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.clearTimeout(idle);
+      railDrag.set(false);
+    };
+  }, [dragging, scrollRef]);
   useEffect(() => () => railDrag.set(false), []);
   const moveTimer = useRef<number | undefined>(undefined);
   const lastMoveAt = useRef(0);

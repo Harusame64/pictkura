@@ -190,6 +190,16 @@ export const RAIL_DWELL_MS = (() => {
     return 60;
   }
 })();
+/** SPIKE: 帯で動かしている中身がこの速さ（px/秒）より遅ければ読む（localStorage の pk.spike.railSlowPxs、既定 1500） */
+export const RAIL_SLOW_PXS = (() => {
+  try {
+    const raw = globalThis.localStorage?.getItem("pk.spike.railSlowPxs");
+    const v = Number(raw);
+    return raw !== null && raw !== undefined && Number.isFinite(v) && v >= 0 ? v : 1500;
+  } catch {
+    return 1500;
+  }
+})();
 let railDragging = false;
 const railListeners = new Set<() => void>();
 export const railDrag = {
