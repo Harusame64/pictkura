@@ -167,3 +167,32 @@ export class BlankWaiters {
     }
   }
 }
+
+/**
+ * SPIKE: 帯（`ScrubRail`）を掴んで動かしている間か。1秒に数千枚が画面を流れ、1枚ずつ届ける作りでは追いつかない
+ * （win2: どの経路でも 0.25〜0.31、直接入れると CPU だけ増えた）。動かしている間はタイルが読みを始めず、離したら
+ * 止まった所だけを読む。localStorage の pk.spike.railPause=0 で切る
+ */
+export const RAIL_PAUSE_ON = (() => {
+  try {
+    return globalThis.localStorage?.getItem("pk.spike.railPause") !== "0";
+  } catch {
+    return true;
+  }
+})();
+let railDragging = false;
+const railListeners = new Set<() => void>();
+export const railDrag = {
+  get: () => railDragging,
+  set(on: boolean) {
+    if (railDragging === on) return;
+    railDragging = on;
+    for (const f of railListeners) f();
+  },
+  subscribe(f: () => void) {
+    railListeners.add(f);
+    return () => {
+      railListeners.delete(f);
+    };
+  },
+};

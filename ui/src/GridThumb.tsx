@@ -1,5 +1,5 @@
-import { useLayoutEffect, useReducer, useRef } from "react";
-import { paintable, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
+import { useLayoutEffect, useReducer, useRef, useSyncExternalStore } from "react";
+import { paintable, railDrag, RAIL_PAUSE_ON, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
 import type { TileAttach } from "./useTileQueue";
 
 const DIRECT_ON = (() => {
@@ -54,6 +54,8 @@ export function GridThumb({
   const ref = useRef<HTMLImageElement>(null);
   /** いまの URL の絵を出したか（外れたときに、作る列から降ろすかを決める） */
   const paintedRef = useRef(false);
+  // SPIKE: 帯を掴んで動かしている間は読みを始めない（最近出した絵だけは出す）。離したら下の effect が走り直す
+  const railPaused = useSyncExternalStore(railDrag.subscribe, railDrag.get) && RAIL_PAUSE_ON;
   // 起こされたら下の effect を走り直させて問い直す（`BlankWaiters`）
   const [wakes, wakeUp] = useReducer((n: number) => n + 1, 0);
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
@@ -71,6 +73,7 @@ export function GridThumb({
       return;
     }
     paintedRef.current = false;
+    if (railPaused) return;
     // SPIKE: サムネイルがもうある写真は、列を通さずに img へ直接入れる（1.0.2 と同じく DOM に入った瞬間から読む。
     // 小さな絵は読むのも展開するのも安い。列で絞るのは原本を読むときだけでよい、かを測る）
     if (direct && DIRECT_ON) {
@@ -116,7 +119,7 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, wakes, direct]);
+  }, [src, loader, recent, waiters, id, wakes, direct, railPaused]);
   // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、絵が出る前なら
   // 作る列から降ろす（`BlankWaiters.leave`）
   useLayoutEffect(
