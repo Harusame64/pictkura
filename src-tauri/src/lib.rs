@@ -7665,13 +7665,15 @@ fn handle_media_request(
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
-            // 一覧のタイルには、サムネイルが無い間は原本を渡さない。働き手の列の先頭へ押して、空のタイルで待たせる。
-            // 出来れば URL（`thumb_state`）が変わり、タイルが読み直す。原本を渡すと、WebView が大きな絵を
-            // ほぼ1コアで展開して、ほかのタイルのサムネイルまで詰まる（帯を速く動かすと3万枚で約600MB を読んだ）。
-            // win2 の比べ合わせでは、その場で作る形（#343）より、止めてから写真がそろうのも、動かしている間に
-            // 写真が出る割合も良かった（埋め込みサムネイルの無い3万枚で、出る割合 0.01〜0.07 → 0.25〜0.33）
+            // 一覧のタイルには、サムネイルが無い間は**原本を渡しつつ、働き手の列の先頭へ押す**。出来れば URL
+            // （`thumb_state`）が変わり、タイルがサムネイルへ読み直す。#344 では原本を渡さず空のタイルで待たせたが、
+            // 画素で測り直すと（win2、DOM の数え方は描かれる前の絵を数えていた）、止めてから写真がそろうまでが
+            // 1.0.2 より遅かった（一気送りの後 0.3 秒で灰色 0.48 対 0.04、帯の後 0.62）。原本を渡すと 0.14 で、帯を
+            // 速く動かして原本を約 200MB 描いても詰まらなかった——一覧の読みは列（`gridThumbs.ts`、同時4枚・画面外は
+            // 捨てる）が絞っているので、#344 の前の「約600MB を読んで詰まる」は起きない
             //
-            // 待っているタイルは、働き手がその写真を片付けた知らせで問い直す（`gridThumbs.ts` の `BlankWaiters`）。
+            // 原本を描けない写真（RAW・HEIC・クラウドだけ等）は空のタイルで待ち、働き手がその写真を片付けた知らせで
+            // 問い直す（`gridThumbs.ts` の `BlankWaiters`）。
             // 待たせないのは、働き手が作らない写真と、失敗が上限に達した写真（今までどおり原本か空のタイル。
             // 上限に達した回の知らせで問い直し、その場で原本へ替わる）、そして
             // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
@@ -7693,7 +7695,10 @@ fn handle_media_request(
                 && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
             {
                 state.thumbs.prioritize(&[id]);
-                return blank_thumb();
+                if !can_serve_original(&record) {
+                    return blank_thumb();
+                }
+                record.path
             }
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,

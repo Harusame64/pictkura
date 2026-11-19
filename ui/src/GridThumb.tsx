@@ -13,12 +13,14 @@ let seq = 0;
  * URL が替わったときに、そのタイルの片付けが必ず走る。
  *
  * 描く前（layout effect）に決める: 最近出した絵ならその場で `src` と印を入れ、浮かび直させない。
- * そうでなければ列に並べ、読み終わったら入れる。URL が替わったら、新しい絵が届くまで前の絵を出したまま
+ * サムネイルがもうある写真（`ready`）は、列を通さずすぐ `src` を入れる。まだ無い写真は列に並べ（Rust は原本を
+ * 返しつつサムネイルを作る列へ積む）、読み終わったら入れる。URL が替わったら、新しい絵が届くまで前の絵を出したまま
  */
 export function GridThumb({
   id,
   day,
   url,
+  ready,
   label,
   loader,
   recent,
@@ -33,6 +35,13 @@ export function GridThumb({
    */
   day?: number;
   url: string;
+  /**
+   * サムネイル（即席でも本番でも）がもうある。**列を通さず、すぐ `src` に入れる**——DOM に入った瞬間から読み始め、
+   * 画面に入る前に読み終わる。列（同時4枚・見えているものから）は原本を読むときだけでよい。小さな絵を列で
+   * 絞ると、一気に送った間、画面に入ってから読み始めて間に合わなかった（win2 の画素の計器: 初めて通る所の
+   * 写真の割合 0.40 → 0.80〜0.89。即席だけのライブラリでも、全部本番を作ったライブラリでも同じ）
+   */
+  ready?: boolean;
   label: string;
   loader: TileAttach;
   recent: RecentThumbs;
@@ -60,6 +69,13 @@ export function GridThumb({
       return;
     }
     paintedRef.current = false;
+    if (ready) {
+      el.src = src;
+      el.setAttribute("data-shown", "");
+      recent.add(src, src);
+      paintedRef.current = true;
+      return;
+    }
     // 知らせが来ていれば、その数を URL に足して問い直す（同じ URL は macOS で前の空の絵が返りうる。`BlankWaiters`）
     const asked = waiters.count(id);
     const ask = asked === 0 ? src : `${src}&ask=${asked}`;
@@ -96,7 +112,7 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, wakes]);
+  }, [src, loader, recent, waiters, id, wakes, ready]);
   // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、絵が出る前なら
   // 作る列から降ろす（`BlankWaiters.leave`）
   useLayoutEffect(
