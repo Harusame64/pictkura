@@ -7499,6 +7499,10 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// サムネイルがまだ無い写真で、一覧のタイルに原本を渡してよいファイルの大きさの上限（`handle_media_request`）。
+/// 寸法の上限（[`MAX_ORIGINAL_THUMB_EDGE`]）の内の JPEG はふつう数 MB まで
+const GRID_ORIGINAL_MAX_BYTES: i64 = 8 * 1024 * 1024;
+
 /// 一覧のタイルからの要求か（`GridThumb.tsx` が URL に `grid=1` を付ける）
 fn requested_by_grid(url: &str) -> bool {
     url.split_once('?')
@@ -7698,7 +7702,11 @@ fn handle_media_request(
                 // 一覧で原本を渡すのは、**寸法が分かっていて上限以内**の写真だけ。寸法が未確認のうち（新しい
                 // ライブラリ）は大きさが分からず、NAS の 100MP のパノラマを丸ごと読みうる——その間は空のタイルで
                 // 待つ（素性を読むのは速い。PR #356 の /code-review）
-                if record.width.is_none() || !can_serve_original(&record) {
+                // ファイルの大きさにも上限を付ける（寸法が小さくても、長い GIF は何十 MB にもなる）
+                if record.width.is_none()
+                    || record.size > GRID_ORIGINAL_MAX_BYTES
+                    || !can_serve_original(&record)
+                {
                     return blank_thumb();
                 }
                 record.path

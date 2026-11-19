@@ -21,6 +21,7 @@ export function GridThumb({
   day,
   url,
   ready,
+  quick,
   label,
   loader,
   recent,
@@ -42,6 +43,8 @@ export function GridThumb({
    * 写真の割合 0.40 → 0.80〜0.89。即席だけのライブラリでも、全部本番を作ったライブラリでも同じ）
    */
   ready?: boolean;
+  /** あるのは即席だけ（本番はまだ）。見えている間は本番を作る列に積まれるので、去ったら降ろす */
+  quick?: boolean;
   label: string;
   loader: TileAttach;
   recent: RecentThumbs;
@@ -52,6 +55,8 @@ export function GridThumb({
   const ref = useRef<HTMLImageElement>(null);
   /** いまの URL の絵を出したか（外れたときに、作る列から降ろすかを決める） */
   const paintedRef = useRef(false);
+  // `ready` の URL が空・404 で返った（一覧の行が古く、サムネイルが消えていた等）。列の道で問い直す
+  const [stale, markStale] = useReducer(() => true, false);
   // 起こされたら下の effect を走り直させて問い直す（`BlankWaiters`）
   const [wakes, wakeUp] = useReducer((n: number) => n + 1, 0);
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、Rust が作る列の先頭へ押し、
@@ -71,14 +76,28 @@ export function GridThumb({
     }
     paintedRef.current = false;
     el.removeAttribute("data-instant");
-    if (ready) {
+    if (ready && !stale) {
       // 出すのは届いてから（`onDone`）。先に印を付けると、届くまでタイルの地（明るい灰色）が見えた。届いたら
-      // フェードせずにその場で出す（`data-instant`。一気送りではフェードの途中の暗い絵のまま去った）
+      // フェードせずにその場で出す（`data-instant`。一気送りではフェードの途中の暗い絵のまま去った）。
+      // 覚えるのも、出せる絵が届いてから——空や 404 なら覚えず、列の道で問い直す（行が古くサムネイルが消えて
+      // いたとき、空を覚えて灰色のまま残った。PR #356 の /code-review）
       el.setAttribute("data-instant", "");
+      const settle = () => {
+        if (paintable(el)) {
+          recent.add(src, src);
+          paintedRef.current = true;
+        } else {
+          el.removeAttribute("src");
+          markStale();
+        }
+      };
+      el.addEventListener("load", settle, { once: true });
+      el.addEventListener("error", settle, { once: true });
       el.src = src;
-      recent.add(src, src);
-      paintedRef.current = true;
-      return;
+      return () => {
+        el.removeEventListener("load", settle);
+        el.removeEventListener("error", settle);
+      };
     }
     // 知らせが来ていれば、その数を URL に足して問い直す（同じ URL は macOS で前の空の絵が返りうる。`BlankWaiters`）
     const asked = waiters.count(id);
@@ -116,15 +135,16 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, wakes, ready]);
+  }, [src, loader, recent, waiters, id, wakes, ready, stale]);
   // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、サムネイルが
   // まだ無ければ作る列から降ろす（`BlankWaiters.leave`）。原本が描けたタイルも降ろす——Rust は原本を返すときも
   // 列に積んでいて、通り過ぎた写真の本番が、止めた画面の HEIC・RAW の前に並んだ（PR #356 の /code-review）
-  const readyRef = useRef(ready);
-  readyRef.current = ready;
+  // 即席だけのタイルも降ろす——見えている間に `set_visible_priority` が本番を積んでいる（PR #356 の /code-review）
+  const doneRef = useRef(false);
+  doneRef.current = !!ready && !quick && !stale;
   useLayoutEffect(
     () => () => {
-      if (!paintedRef.current || !readyRef.current) waiters.leave(id);
+      if (!paintedRef.current || !doneRef.current) waiters.leave(id);
     },
     [waiters, id],
   );
