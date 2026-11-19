@@ -366,19 +366,19 @@ answer to their English names whatever language the app is in.
 | `X` | reject it (✕). **Nothing is deleted when you press it** — closing the viewer shows you the faces first, then moves them all to the recycle bin at once |
 | `Space` | slideshow (play / pause for video) |
 | `F` | toggle favorite (★) |
-| `I` | file details and capture info (camera, lens, aperture, shutter, ISO, focal length, GPS) |
+| `I` | capture info (camera, lens, aperture, shutter, ISO, focal length, GPS) and file details |
 | `Ctrl` + `C` / `Ctrl` + `S` | copy the picture on screen to the clipboard / save it to a file (`⌘` on macOS) |
 | `Ctrl` + `P` | print the photo on screen (`⌘` on macOS) |
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `F11` | full screen |
-| `Esc` | close |
+| `Esc` | close (in full screen, the first press leaves full screen) |
 | `?` / `F1` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
 | `Ctrl` + `,` | open Settings (`⌘` + `,` on macOS, or pictkura → Settings… in the menu) |
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 “Open”, “Open with another app…”, “Show in folder”, “Show more options” (Windows), “Copy image to clipboard”, “Rotate right” and
 “Rotate left” (JPEG; once turned, “Restore original orientation” appears too), “Print…”, “Add to favorites”,
-“Pick”, “Info” and “Delete (move to trash)” (editors you have used before sit just under “Open”); with Outgoing
+“Pick”, “Info” and “Delete (move to trash)” (apps you have picked before, then the system’s suggestions, sit just under “Open”; `Ctrl`/`⌘` + `1`–`3` open the top three); with Outgoing
 on, “Add to Outgoing” is there too. **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright (except what it placed in the Outgoing folder).
 
@@ -578,7 +578,7 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | Fast writes | SQLite in WAL mode, batched inserts in one transaction |
 | No layout shift | width and height live in the DB, so tiles are sized before the image arrives |
 | Instant first paint | the embedded EXIF thumbnail is used as-is, without re-encoding |
-| No blank tiles when scrolling | the thumbnail queue prioritizes whatever is on screen |
+| Thumbnails on screen come first | the thumbnail queue prioritizes whatever is on screen |
 | Serve while scanning | directory scans run outside the DB lock |
 | No full transfer at startup | a date→count index, fetching only the days in view |
 | Don't walk the disk at startup | the NTFS USN journal supplies only what changed (folders on FAT32/exFAT USB drives and SD cards are still walked in full on every launch) |
