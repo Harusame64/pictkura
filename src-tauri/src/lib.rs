@@ -7695,7 +7695,10 @@ fn handle_media_request(
                 && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
             {
                 state.thumbs.prioritize(&[id]);
-                if !can_serve_original(&record) {
+                // 一覧で原本を渡すのは、**寸法が分かっていて上限以内**の写真だけ。寸法が未確認のうち（新しい
+                // ライブラリ）は大きさが分からず、NAS の 100MP のパノラマを丸ごと読みうる——その間は空のタイルで
+                // 待つ（素性を読むのは速い。PR #356 の /code-review）
+                if record.width.is_none() || !can_serve_original(&record) {
                     return blank_thumb();
                 }
                 record.path

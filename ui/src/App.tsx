@@ -9326,7 +9326,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 // サムネイルがあればすぐ読む。まだ無い写真（原本を読む）は列で読む（`gridThumbs.ts`。同時に4枚、
                                 // 見えているものから、外れたら捨てる）
                                 url={thumbSrc(cell.item)}
-                                ready={cell.item.thumb_state >= 1}
+                                // 即席（1）か本番（2）があるときだけ。作らない写真（SVG・プレビューの無い RAW）は列で読む
+                                ready={cell.item.thumb_state === 1 || cell.item.thumb_state === 2}
                                 label={cell.item.file_name}
                                 loader={gridLoader}
                                 recent={recentThumbs}

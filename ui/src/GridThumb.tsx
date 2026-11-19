@@ -54,8 +54,9 @@ export function GridThumb({
   const paintedRef = useRef(false);
   // 起こされたら下の effect を走り直させて問い直す（`BlankWaiters`）
   const [wakes, wakeUp] = useReducer((n: number) => n + 1, 0);
-  // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
-  // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
+  // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、Rust が作る列の先頭へ押し、
+  // 描ける原本（寸法が分かっていて上限以内）なら原本を、描けなければ空のタイルを返す（`src-tauri` の
+  // `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
   // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
   const src = day === undefined ? `${url}&grid=1` : `${url}&grid=1&day=${day}`;
   useLayoutEffect(() => {
@@ -70,8 +71,8 @@ export function GridThumb({
     }
     paintedRef.current = false;
     if (ready) {
+      // 浮かべるのは届いてから（`onDone`）。先に印を付けると、届くまでタイルの地（明るい灰色）が見えた
       el.src = src;
-      el.setAttribute("data-shown", "");
       recent.add(src, src);
       paintedRef.current = true;
       return;
@@ -113,11 +114,14 @@ export function GridThumb({
       unwait();
     };
   }, [src, loader, recent, waiters, id, wakes, ready]);
-  // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、絵が出る前なら
-  // 作る列から降ろす（`BlankWaiters.leave`）
+  // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、サムネイルが
+  // まだ無ければ作る列から降ろす（`BlankWaiters.leave`）。原本が描けたタイルも降ろす——Rust は原本を返すときも
+  // 列に積んでいて、通り過ぎた写真の本番が、止めた画面の HEIC・RAW の前に並んだ（PR #356 の /code-review）
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
   useLayoutEffect(
     () => () => {
-      if (!paintedRef.current) waiters.leave(id);
+      if (!paintedRef.current || !readyRef.current) waiters.leave(id);
     },
     [waiters, id],
   );
