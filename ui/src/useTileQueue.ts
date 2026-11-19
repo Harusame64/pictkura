@@ -60,9 +60,11 @@ export class TileLoader implements TileAttach {
   private readonly leadMs: number = (() => {
     try {
       const v = Number(globalThis.localStorage?.getItem("pk.spike.leadMs"));
-      return Number.isFinite(v) && v >= 0 ? v : 120;
+      // 既定は切る（掃引で効かなかった。入れれば試せる）
+      const raw = globalThis.localStorage?.getItem("pk.spike.leadMs");
+      return raw !== null && raw !== undefined && Number.isFinite(v) && v >= 0 ? v : 0;
     } catch {
-      return 120;
+      return 0;
     }
   })();
   private readonly onScroll = () => {
