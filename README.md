@@ -371,7 +371,7 @@ answer to their English names whatever language the app is in.
 | `Ctrl` + `P` | print the photo on screen (`⌘` on macOS) |
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `F11` | full screen |
-| `Esc` | close |
+| `Esc` | close (in full screen, the first press leaves full screen) |
 | `?` / `F1` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
 | `Ctrl` + `,` | open Settings (`⌘` + `,` on macOS, or pictkura → Settings… in the menu) |
 
