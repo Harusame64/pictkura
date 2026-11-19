@@ -1949,6 +1949,7 @@ fn process_video(
     let thumb = crate::resize::shrink_to_fit(&img, thumb_size);
     let webp_path = thumb_path_for(thumbs_dir, id, "webp");
     ensure_parent(&webp_path)?;
+    write_tiny(&webp_path, id, &thumb);
     let rgb = crate::resize::flatten_onto_white(&thumb);
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
     let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
@@ -2236,6 +2237,7 @@ pub fn process_one_job(
         if let Some(img) = crate::heif::decode_thumbnail(src) {
             let webp_path = thumb_path_for(thumbs_dir, id, "webp");
             ensure_parent(&webp_path)?;
+            write_tiny(&webp_path, id, &img);
             let rgb = crate::resize::flatten_onto_white(&img);
             let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
             let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
@@ -2254,6 +2256,11 @@ pub fn process_one_job(
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
                 ensure_parent(&jpg_path)?;
+                write_tiny(
+                    &jpg_path,
+                    id,
+                    &apply_orientation(embedded.clone(), exif_data.orientation),
+                );
                 let tmp = write_temp_thumb(&jpg_path, |p| {
                     if exif_data.orientation == 1 {
                         std::fs::write(p, bytes)?;
@@ -2308,7 +2315,9 @@ pub fn process_one_job(
     // WebP(lossy)で書く: JPEG比でほぼ半分の容量（100万枚で数十GBの差になる）
     let webp_path = thumb_path_for(thumbs_dir, id, "webp");
     ensure_parent(&webp_path)?;
-    let rgb = crate::resize::flatten_onto_white(&apply_orientation(thumb, exif_data.orientation));
+    let oriented = apply_orientation(thumb, exif_data.orientation);
+    write_tiny(&webp_path, id, &oriented);
+    let rgb = crate::resize::flatten_onto_white(&oriented);
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
     let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
 
@@ -2361,9 +2370,30 @@ const MAX_FAILURES: u32 = 3;
 /// 収まり、帯を速く送ったときの通り過ぎた写真は残さない長さ
 const PRIORITY_MAX: usize = 512;
 
-/// SPIKE: 写真の行のサムネイル（あるものだけ）を `cw`×`ch` に縮めて `cols` 列に並べた1枚の JPEG（`src-tauri` の
-/// `atlas_response`）。サムネイルの無い写真の升は地の灰色
-pub fn day_atlas(records: &[crate::MediaRecord], cols: u32, cw: u32, ch: u32) -> Option<Vec<u8>> {
+/// SPIKE: 極小の絵（[`write_tiny`]）の置き場。サムネイルと同じフォルダの `{id}.t.jpg`
+pub fn tiny_path_beside(thumb_path: &Path, id: i64) -> PathBuf {
+    thumb_path.with_file_name(format!("{id}.t.jpg"))
+}
+
+/// SPIKE: 極小の絵の大きさ（日ごとの絵の1升）
+pub const TINY_W: u32 = 64;
+pub const TINY_H: u32 = 48;
+
+/// SPIKE: サムネイルを書くついでに、極小の絵（64×48 に切り抜いた JPEG、1〜2KB）を隣に書く。日ごとの絵は
+/// これを並べるだけにする（帯を動かす瞬間にサムネイルを1枚ずつ展開しない）。失敗しても黙る（無ければ灰色の升）
+fn write_tiny(final_path: &Path, id: i64, img: &image::DynamicImage) {
+    let cell = img
+        .resize_to_fill(TINY_W, TINY_H, image::imageops::FilterType::Triangle)
+        .to_rgb8();
+    if let Some(bytes) = crate::jpeg::encode_rgb(&cell, 70, crate::jpeg::ChromaSampling::Half) {
+        let _ = std::fs::write(tiny_path_beside(final_path, id), bytes);
+    }
+}
+
+/// SPIKE: 写真の行の極小の絵（あるものだけ）を `cols` 列に並べた1枚の JPEG（`src-tauri` の `atlas_response`）。
+/// 極小の絵の無い写真の升は地の灰色
+pub fn day_atlas(records: &[crate::MediaRecord], cols: u32) -> Option<Vec<u8>> {
+    let (cw, ch) = (TINY_W, TINY_H);
     let n = records.len().max(1) as u32;
     let rows = n.div_ceil(cols);
     let mut canvas = image::RgbImage::from_pixel(cols * cw, rows * ch, image::Rgb([46, 44, 42]));
@@ -2371,14 +2401,14 @@ pub fn day_atlas(records: &[crate::MediaRecord], cols: u32, cw: u32, ch: u32) ->
         let Some(p) = r.thumb_path.as_deref() else {
             continue;
         };
-        let Some(img) = crate::jpeg::decode_scaled(p, cw.max(ch) * 2) else {
+        let Ok(bytes) = std::fs::read(tiny_path_beside(p, r.id)) else {
             continue;
         };
-        let cell = img
-            .resize_to_fill(cw, ch, image::imageops::FilterType::Triangle)
-            .to_rgb8();
+        let Some(img) = crate::jpeg::decode_scaled_mem(&bytes, cw.max(ch)) else {
+            continue;
+        };
         let (x, y) = ((i as u32 % cols) * cw, (i as u32 / cols) * ch);
-        image::imageops::replace(&mut canvas, &cell, x as i64, y as i64);
+        image::imageops::replace(&mut canvas, &img.to_rgb8(), x as i64, y as i64);
     }
     crate::jpeg::encode_rgb(&canvas, 70, crate::jpeg::ChromaSampling::Half)
 }

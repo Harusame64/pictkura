@@ -1436,6 +1436,8 @@ input[type="range"]:focus-visible {
  * **地はタイルの届く前の四角と同じ色**（`--cell-pending`）——`--surface-2` のままだと、勢いよく
  * スクロールしたとき画面いっぱいに灰色の塊が出た（win の実測、#173）。きらめきの明るい側も1段だけ */
 .placeholder-row {
+  position: relative;
+  overflow: hidden;
   border-radius: var(--radius-photo);
   background: linear-gradient(
       90deg,
@@ -1445,6 +1447,12 @@ input[type="range"]:focus-visible {
     )
     0 0 / 200% 100%;
   animation: placeholder-shimmer 1.4s linear infinite;
+}
+/* SPIKE: 日ごとの極小の絵（`atlasSrc`）。届くまでは透けて、下のきらめきが見える */
+.placeholder-atlas {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
 }
 @keyframes placeholder-shimmer {
   from {

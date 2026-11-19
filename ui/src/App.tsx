@@ -9493,20 +9493,19 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       {row.kind === "header" ? (
                         dayHeader(row.dayKey, row.label, row.count)
                       ) : row.kind === "placeholder" ? (
-                        <div
-                          className="placeholder-row"
-                          style={{
-                            height: row.height - GAP,
-                            // SPIKE: まだ中身を読んでいない日に、その日の小さな絵を1枚で敷く（帯で速く動かす間の「紙」）
-                            ...(ATLAS_ON && !filtering && kind === "all"
-                              ? {
-                                  backgroundImage: `url("${atlasSrc(row.dayKey, row.cols, row.count)}")`,
-                                  backgroundSize: `100% ${row.height}px`,
-                                  backgroundRepeat: "no-repeat",
-                                }
-                              : {}),
-                          }}
-                        />
+                        <div className="placeholder-row" style={{ height: row.height - GAP }}>
+                          {/* SPIKE: まだ中身を読んでいない日に、その日の極小の絵を1枚で重ねる（帯で速く動かす間の「紙」）。
+                              届くまでは透けて、下の灰色のきらめきが見える（背景を差し替えると、届くまで黒い穴になった） */}
+                          {ATLAS_ON && !filtering && kind === "all" && (
+                            <div
+                              className="placeholder-atlas"
+                              style={{
+                                backgroundImage: `url("${atlasSrc(row.dayKey, row.cols, row.count)}")`,
+                                backgroundSize: `100% ${row.height}px`,
+                              }}
+                            />
+                          )}
+                        </div>
                       ) : row.kind === "pack" ? (
                         // 写真の少ない日を1行に並べる（デザインレビュー）。日ごとに見出しを上に置く
                         <div className="pack-row" style={{ columnGap: PACK_DAY_GAP }}>

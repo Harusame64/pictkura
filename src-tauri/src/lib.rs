@@ -7531,21 +7531,20 @@ fn worker_makes_thumb(thumb_state: i64) -> bool {
 fn atlas_response(state: &AppState, day: i64, cols: u32) -> Response<Vec<u8>> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
-    const CW: u32 = 64;
-    const CH: u32 = 48;
     static CACHE: OnceLock<Mutex<HashMap<(i64, u32, usize), Vec<u8>>>> = OnceLock::new();
     let records = state
         .read_pool
         .with(|db| db.list_day(day, pictkura_core::MediaFilter::All))
         .unwrap_or_default();
-    let with_thumb = records.iter().filter(|r| r.thumb_path.is_some()).count();
-    let key = (day, cols, with_thumb);
+    // 即席→本番で極小の絵も書き直されるので、状態の合計で覚え直す
+    let states: i64 = records.iter().map(|r| r.thumb_state).sum();
+    let key = (day, cols, states as usize + records.len() * 1_000_000);
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let hit = lock_ok(cache).get(&key).cloned();
     let bytes = match hit {
         Some(b) => b,
         None => {
-            let b = pictkura_core::thumbs::day_atlas(&records, cols, CW, CH).unwrap_or_default();
+            let b = pictkura_core::thumbs::day_atlas(&records, cols).unwrap_or_default();
             let mut c = lock_ok(cache);
             if c.len() > 400 {
                 c.clear();
@@ -7557,6 +7556,8 @@ fn atlas_response(state: &AppState, day: i64, cols: u32) -> Response<Vec<u8>> {
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "image/jpeg")
+        // 中身は極小の絵が増えると変わる。WebView には覚えさせず、こちらの控えで答える
+        .header("Cache-Control", "no-store")
         .body(bytes)
         .unwrap_or_else(|_| server_error())
 }
