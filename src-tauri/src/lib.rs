@@ -2602,6 +2602,15 @@ fn about_info(app: tauri::AppHandle) -> AboutDto {
 /// **「ここに残す種類の失敗は起きていない」**の意味になる（画面に出る失敗は
 /// ここには来ない。サムネイルが1枚出ないのはその場に出る・PRのcodex）。
 /// ボタンを押せるかの正にそのまま使える。
+/// SPIKE #80（マージしない）: UI の時刻を一時ファイルへ書く
+#[tauri::command]
+fn spike80_log(line: String) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("spike80.log")) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
 #[tauri::command]
 fn log_path() -> Option<String> {
     applog::file()
@@ -8990,6 +8999,7 @@ pub fn run() {
             open_bundled_doc,
             open_log,
             log_path,
+            spike80_log,
             open_with,
             open_outside,
             take_pending_open,

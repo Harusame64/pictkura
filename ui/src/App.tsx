@@ -18,6 +18,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
@@ -211,6 +212,9 @@ const PACK_DAY_GAP = 28;
 const GRID_PADDING = 8 + 48;
 /** 日キャッシュの上限（超えたら可視範囲外の古い日から間引く） */
 const DAY_CACHE_MAX = 150;
+// SPIKE #80（マージしない）
+const spikeLog = (m: string) => { void invoke("spike80_log", { line: `${performance.now().toFixed(1)} ${m}` }).catch(() => {}); };
+(window as unknown as { __spikeLog: typeof spikeLog }).__spikeLog = spikeLog;
 const DAY_CACHE_TRIM_TO = 120;
 /** 左ペインに常時見せるカメラの台数（多い人は畳んでおく） */
 const CAMERAS_COLLAPSED = 3;
@@ -1792,8 +1796,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     if (want.length === 0) return;
     for (const d of want) inflightRef.current.add(d);
     const gen = generationRef.current;
+    const spikeT0 = performance.now();
+    spikeLog(`listDays send n=${want.length}`);
     listDays(want, queryRef.current, filterRef.current)
       .then((pairs) => {
+        spikeLog(`listDays recv n=${want.length} items=${pairs.reduce((a, p) => a + (p.items?.length ?? 0), 0)} rt=${(performance.now() - spikeT0).toFixed(1)}`);
         // 世代が替わっていれば何も触らない——読み途中の印は新しい世代の要求のものになっている
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
         for (const d of want) inflightRef.current.delete(d);
@@ -3945,6 +3952,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
+    spikeLog(`visible days=${visible.size} placeholders=${wanted.length}`);
     // 見えている「読み込み中の写真」の束の枚数がずれていたら、出したまま取り直す（上の `refreshSummary` で捨てない
     // 代わり。同じ骨組みには1回、読み途中なら届いた後にまた見る。`staleDays.ts`）
     if (visible.has(UNREAD_DAY)) {
@@ -9234,7 +9242,36 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の1〜2秒）だけ、ふつうのスクロールバーを出す——帯が
                   無い。束がある間ずっと出すと、帯の下に隠れて掴めず、Windows では出入りのたびに幅が変わって一覧が
                   並べ直された（PR #351 の /code-review） */}
-              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
+              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={(el) => {
+                (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+                // SPIKE #80: 8秒後に、まだ見ていない場所へ5回跳び、各1.5秒のあいだ画面の状態を50msごとに記録する
+                const w = window as unknown as { __spike80Started?: boolean };
+                if (el && !w.__spike80Started && rowTops[rows.length] > 20000) {
+                  w.__spike80Started = true;
+                  window.setTimeout(async () => {
+                    const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+                    const probe = (tag: string) => {
+                      const box = el.getBoundingClientRect();
+                      let ph = 0, imgs = 0, drawn = 0;
+                      for (const p of el.querySelectorAll(".placeholder-row")) { const r = p.getBoundingClientRect(); if (r.bottom > box.top && r.top < box.bottom) ph++; }
+                      for (const im of el.querySelectorAll("img")) { const r = im.getBoundingClientRect(); if (r.bottom > box.top && r.top < box.bottom) { imgs++; if ((im as HTMLImageElement).complete && (im as HTMLImageElement).naturalWidth > 0) drawn++; } }
+                      spikeLog(`probe ${tag} ph=${ph} imgs=${imgs} drawn=${drawn}`);
+                    };
+                    for (const f of [0.15, 0.55, 0.85, 0.35, 0.7, 0.05, 0.95]) {
+                      const total = el.scrollHeight - el.clientHeight;
+                      spikeLog(`JUMP f=${f}`);
+                      // 帯を掴んで滑らせるのと同じく、450ms かけて 16ms ごとに動かしてから止める
+                      const from = el.scrollTop, to = Math.round(total * f);
+                      const glide = (window as unknown as { __spikeGlide?: number }).__spikeGlide ?? 450;
+                      const steps = Math.max(1, Math.round(glide / 16));
+                      for (let k = 1; k <= steps; k++) { el.scrollTop = Math.round(from + ((to - from) * k) / steps); await sleep(16); }
+                      spikeLog(`STOP f=${f}`);
+                      for (let k = 0; k <= 30; k++) { probe(`f=${f} t=${k * 50}`); await sleep(50); }
+                    }
+                    spikeLog("DONE");
+                  }, 8000);
+                }
+              }}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。
