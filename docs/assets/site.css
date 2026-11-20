@@ -31,7 +31,12 @@
   --pick: oklch(0.72 0.15 165);
   --danger: oklch(0.62 0.2 25);
   --warn: oklch(0.68 0.15 60);
-  --radius: 4px;
+  /* 角丸は部品の役割で決める——アプリ 1.1.0 の ui/src/tokens.css と同じ値。
+     小さく持つ物ほど角を小さく、面が大きいほど丸く。.cards の罫の升は角を付けない */
+  --radius-photo: 3px; /* 写真・画面写真・動画。中身なので、ほぼ直角 */
+  --radius-chip: 4px; /* 札・キーの印 */
+  --radius-control: 8px; /* ボタン */
+  --radius-surface: 12px; /* カード・メニュー・知らせ・コマンドの欄 */
   --pad: 64px;
   --font-jp: "Zen Kaku Gothic New", "Archivo", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
   --font-en: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -66,7 +71,7 @@ body {
   .shot-link::after {
     content: "⤢"; position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px;
     display: grid; place-items: center; font-size: 15px; line-height: 1; color: #fff;
-    background: oklch(0 0 0 / 0.55); border-radius: 6px; pointer-events: none;
+    background: oklch(0 0 0 / 0.55); border-radius: var(--radius-chip); pointer-events: none;
   }
 }
 /* 英文の面にも和字が1文字だけ出ることがある（about の `kura (蔵)`）。
@@ -157,7 +162,7 @@ p { margin: 0 0 18px; }
 .nav-toggle {
   display: none; align-items: center; justify-content: center;
   width: 40px; height: 40px; flex-shrink: 0;
-  border: 1px solid oklch(1 0 0 / 0.22); border-radius: var(--radius);
+  border: 1px solid oklch(1 0 0 / 0.22); border-radius: var(--radius-control);
   background: none; color: var(--text-soft); cursor: pointer;
 }
 .nav-toggle:hover { border-color: oklch(1 0 0 / 0.4); color: var(--text); }
@@ -170,7 +175,7 @@ p { margin: 0 0 18px; }
 .lang a { color: var(--text-faint); }
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
-  height: 50px; padding: 0 28px; border-radius: var(--radius);
+  height: 50px; padding: 0 28px; border-radius: var(--radius-control);
   font-size: 15px; font-weight: 500; letter-spacing: 0.02em; white-space: nowrap;
 }
 /* 藍で塗るのは、その画面でいちばん押してほしい1つだけ（アプリの「USBから取り込み」と同じ決まり） */
@@ -216,7 +221,7 @@ body[lang="en"] .hero p { font-size: 17px; line-height: 1.7; }
 .hero-meta { font-size: 12.5px; color: var(--text-faint); letter-spacing: 0.02em; }
 .hero-shot { position: relative; padding: 6px 0 40px; }
 .hero-shot .frame {
-  border: 1px solid oklch(1 0 0 / 0.16); border-right: none; border-radius: var(--radius) 0 0 var(--radius);
+  border: 1px solid oklch(1 0 0 / 0.16); border-right: none; border-radius: var(--radius-photo) 0 0 var(--radius-photo);
   overflow: hidden; box-shadow: 0 40px 90px -30px oklch(0 0 0 / 0.85);
 }
 /* 3:2 のままだと縦に重い。上を残して切り、横に広い板に見せる。
@@ -360,7 +365,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 /* 独立した枠のカード */
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .tile {
-  border: 1px solid oklch(1 0 0 / 0.1); border-radius: var(--radius);
+  border: 1px solid oklch(1 0 0 / 0.1); border-radius: var(--radius-surface);
   padding: 28px 28px 32px; display: flex; flex-direction: column; gap: 14px;
 }
 .tile.pick { border-color: oklch(1 0 0 / 0.22); background: var(--bg-raise); }
@@ -375,7 +380,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .badge {
   font-size: 11px; letter-spacing: 0.02em;
   color: var(--accent); border: 1px solid oklch(0.76 0.09 258 / 0.5);
-  border-radius: 2px; padding: 1px 6px;
+  border-radius: var(--radius-chip); padding: 1px 6px;
 }
 
 /* ─── 全面に敷く写真 ─── */
@@ -412,7 +417,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .shots-2 figure { margin: 0; }
 .shots-2 img {
   display: block; width: 100%; border: 1px solid var(--line-strong);
-  border-radius: var(--radius); background: var(--bg-deep);
+  border-radius: var(--radius-photo); background: var(--bg-deep);
 }
 .shots-2 figcaption { margin-top: 12px; }
 
@@ -425,7 +430,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .demo { margin: 0 0 44px; max-width: 960px; }
 .demo video {
   display: block; width: 100%; height: auto;
-  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-photo);
   background: var(--bg-deep);
 }
 .demo figcaption { margin-top: 12px; }
@@ -437,7 +442,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .split.shot-left { grid-template-columns: minmax(0, 1fr) 420px; }
 .split.shot-right { grid-template-columns: 440px minmax(0, 1fr); }
 .split.aside { grid-template-columns: 520px minmax(0, 1fr); gap: 80px; align-items: start; }
-.shot { border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; background: var(--bg-deep); }
+.shot { border: 1px solid var(--line-strong); border-radius: var(--radius-photo); overflow: hidden; background: var(--bg-deep); }
 .shot img { display: block; width: 100%; }
 .points { display: flex; flex-direction: column; gap: 18px; }
 .point { display: flex; gap: 14px; }
@@ -447,12 +452,13 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .point .glyph { font-size: 20px; line-height: 1.4; width: 22px; flex-shrink: 0; }
 .key {
   font-family: var(--font-mono); font-size: 12px; border: 1px solid oklch(1 0 0 / 0.2);
-  border-radius: 3px; padding: 2px 7px; margin-right: 8px;
+  border-radius: var(--radius-chip); padding: 2px 7px; margin-right: 8px;
 }
 
 /* ─── 注意書き ─── */
 .note {
   padding: 18px 22px; border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius-surface) var(--radius-surface) 0; /* 知らせ＝面。棒の側は角を付けない */
   background: var(--bg-raise); font-size: 14px; line-height: 1.95; color: var(--text-soft);
 }
 .note.warn { border-left-color: var(--warn); }
@@ -463,7 +469,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
    折り返すと、行のどこまでが1つの引数か読めなくなる */
 .cmd {
   margin: 0; padding: 16px 20px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: oklch(0.16 0.008 70);
+  border-radius: var(--radius-surface); background: oklch(0.16 0.008 70);
   font-family: var(--font-mono); font-size: 12.5px; line-height: 1.9;
   color: oklch(0.86 0.004 70); overflow-x: auto; white-space: pre;
 }
@@ -626,7 +632,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 .no { color: var(--text-faint); }
 
 .aside-card {
-  border: 1px solid oklch(1 0 0 / 0.12); border-radius: var(--radius);
+  border: 1px solid oklch(1 0 0 / 0.12); border-radius: var(--radius-surface);
   padding: 28px 32px 30px; background: var(--bg-raise);
 }
 .aside-card p { margin: 0; font-size: 15px; line-height: 1.95; color: var(--text-soft); }
@@ -650,7 +656,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 .dl-pick, .dl-rows { max-width: 980px; }
 .dl-pick {
   display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 44px; align-items: center;
-  border: 1px solid oklch(1 0 0 / 0.18); border-radius: var(--radius);
+  border: 1px solid oklch(1 0 0 / 0.18); border-radius: var(--radius-surface);
   background: var(--bg-raise); padding: 34px 38px 36px;
 }
 .dl-pick h2 { font-size: 24px; margin-bottom: 12px; }
@@ -742,7 +748,7 @@ a.author-link:hover { color: var(--accent-bright); }
     max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px);
     overflow-y: auto; overscroll-behavior: contain;
     border: 1px solid var(--line-strong); border-top: none;
-    border-radius: 0 0 var(--radius) var(--radius);
+    border-radius: 0 0 var(--radius-surface) var(--radius-surface);
     box-shadow: 0 20px 44px oklch(0 0 0 / 0.5);
   }
   .js-nav .bar[data-nav-open] .nav { display: flex; }
