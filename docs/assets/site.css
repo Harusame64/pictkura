@@ -416,7 +416,9 @@ body[lang="en"] .cards p { line-height: 1.75; }
 /* 実際に操作しているところ。写真が全面で入れ替わる絵は GIF に載らないので mp4 で置く。
    音は無い（`muted` が無いと自動再生できない）。HTML に `autoplay` は書いておらず、
    再生を始めるのは `assets/demo.js` が「動きを減らす」設定を見たあとだけ */
-.demo { margin: 0 0 44px; }
+/* 置く幅は撮った大きさ（960px）まで。広い画面で本文の幅いっぱい（約 1310px）に伸ばすと、
+   ぼやけて動画ばかりが目立つ（高密度の画面では 960px でも拡大はされる） */
+.demo { margin: 0 0 44px; max-width: 960px; }
 .demo video {
   display: block; width: 100%; height: auto;
   border: 1px solid var(--line-strong); border-radius: var(--radius);
