@@ -157,7 +157,7 @@ p { margin: 0 0 18px; }
 .nav a[aria-current] { color: var(--text); border-bottom: 1px solid var(--accent); padding-bottom: 3px; }
 /* 帯の右端。ダウンロードは狭くしても畳まない——ここだけは押しに来る人がいる */
 .bar-end { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-.bar-end .btn[aria-current] { border-bottom-color: var(--accent); color: var(--text); }
+.bar-end .btn[aria-current] { border-color: var(--accent); color: var(--text); }
 /* ☰ は狭いときだけ出す。JS が無ければ（`js-nav` が付かなければ）最後まで出ない */
 .nav-toggle {
   display: none; align-items: center; justify-content: center;
@@ -538,6 +538,8 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .doc-body section > h2 { font-size: 24px; display: flex; align-items: baseline; gap: 16px; margin-bottom: 28px; }
 .doc-body section > h2 .num { font-family: var(--font-mono); font-size: 12px; color: var(--accent); font-weight: 400; }
 .doc-body h3 { margin: 32px 0 14px; }
+/* 資料の頁の .cards の中の h3 は、升の余白と gap が受け持つ（上の 32px 0 14px が升の中まで漏れていた） */
+.doc-body .cards h3 { margin: 0; }
 .doc-body p { font-size: 15px; line-height: 1.95; color: var(--text-soft); }
 .doc-body p:last-child { margin-bottom: 0; }
 /* 本文の --text-soft（0.8）と明るさがほぼ同じなので、色だけでは見分けられない。.note a と同じ下線を付ける */
@@ -584,6 +586,12 @@ th.cnt { text-align: right; }
    備考がリファレンスの上に重なって描かれていた（ゲート2が実描画で発見）。
    下限を置けば、潰れる代わりに**横スクロールで読める** */
 table.cams { table-layout: fixed; min-width: 720px; }
+/* 資料の頁の表は、広い画面のための列幅を HTML に直書きしている（`<th style="width:260px">`）。
+   携帯幅ではそれが左の列を固定し、右の文の列が 100px を割って1行数文字になる。
+   直書きの style は stylesheet から !important でしか外せない */
+@media (max-width: 760px) {
+  .doc-body th[style*="width"] { width: auto !important; }
+}
 
 /* メーカーへ飛ぶ札。**柱ではなく本文に置く**——柱は 900px 以下で消え、
    `position: sticky` に高さの上限が無いので 56社ぶんが画面外へ出る */
@@ -827,7 +835,9 @@ a.author-link:hover { color: var(--accent-bright); }
   .nav { gap: 10px 16px; font-size: 13.5px; min-width: 0; }
   .lang { padding-left: 14px; }
   .section { padding: 56px var(--pad) 52px; }
-  .sec-head { gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
+  /* 折り返すと番号（06 など）だけが見出しの上に1人で落ちる。折らずに、h2 の中で改行させる */
+  .sec-head { gap: 14px; margin-bottom: 28px; }
+  .sec-head h2 { min-width: 0; text-wrap: balance; } /* 「渡す」だけが2行目に落ちないように */
   /* 上で 32px を定義した以上、ここにも書かないと携帯幅で 32px のまま残る */
   .section.photo.canopy .sec-head { margin-bottom: 28px; }
   .sec-head h2 { font-size: 24px; }
