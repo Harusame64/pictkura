@@ -46,9 +46,9 @@
   .shot { margin: 24px 0 0; }
   .shot .ph { aspect-ratio: 16 / 10; border: 1px dashed var(--line-strong); display: grid; place-items: center;
               color: var(--text-faint); font-size: 13px; background: var(--bg-raise); }
-  .shot img { width: 100%; height: auto; display: block; border: 1px solid var(--line); }
+  .shot img { width: 100%; height: auto; display: block; }
   .ascii { font-family: var(--font-mono); font-size: 13px; line-height: 1.45; color: var(--text-soft);
-           background: var(--bg-raise); border: 1px solid var(--line); padding: 18px 20px; margin: 0;
+           background: var(--bg-raise); border: 1px solid var(--line); border-radius: var(--radius-surface); padding: 18px 20px; margin: 0;
            overflow-x: auto; white-space: pre; }
   .steps { counter-reset: st; list-style: none; padding: 0; margin: 0; display: grid; gap: 18px; }
   .steps > li { counter-increment: st; position: relative; padding-left: 40px; font-size: 15px; line-height: 1.9; color: var(--text-soft); }

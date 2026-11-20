@@ -35,8 +35,8 @@
      小さく持つ物ほど角を小さく、面が大きいほど丸く。.cards の罫の升は角を付けない */
   --radius-photo: 3px; /* 写真・画面写真・動画。中身なので、ほぼ直角 */
   --radius-chip: 4px; /* 札・キーの印 */
-  --radius-control: 8px; /* ボタン・コマンドの欄 */
-  --radius-surface: 12px; /* カード・メニュー */
+  --radius-control: 8px; /* ボタン */
+  --radius-surface: 12px; /* カード・メニュー・知らせ・コマンドの欄 */
   --pad: 64px;
   --font-jp: "Zen Kaku Gothic New", "Archivo", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
   --font-en: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -458,6 +458,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 /* ─── 注意書き ─── */
 .note {
   padding: 18px 22px; border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius-surface) var(--radius-surface) 0; /* 知らせ＝面。棒の側は角を付けない */
   background: var(--bg-raise); font-size: 14px; line-height: 1.95; color: var(--text-soft);
 }
 .note.warn { border-left-color: var(--warn); }
@@ -468,7 +469,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
    折り返すと、行のどこまでが1つの引数か読めなくなる */
 .cmd {
   margin: 0; padding: 16px 20px; border: 1px solid var(--line);
-  border-radius: var(--radius-control); background: oklch(0.16 0.008 70);
+  border-radius: var(--radius-surface); background: oklch(0.16 0.008 70);
   font-family: var(--font-mono); font-size: 12.5px; line-height: 1.9;
   color: oklch(0.86 0.004 70); overflow-x: auto; white-space: pre;
 }
