@@ -74,7 +74,9 @@ export function GridThumb({
       return;
     }
     el.removeAttribute("data-instant");
-    if (ready && !stale) {
+    // 帯を掴んで動かしている間は、サムネイルがあっても列（同時4枚・見えているものから・去れば降ろす）を通す
+    // （`railMotion`。直接読むと通り過ぎる絵の展開と描画が溜まり、止めた後 100〜400ms 灰色で固まった。#80）
+    if (ready && !stale && !railMotion.dragging) {
       // 出すのは届いてから（`onDone`）。先に印を付けると、届くまでタイルの地（明るい灰色）が見えた。届いたら
       // フェードせずにその場で出す（`data-instant`。一気送りではフェードの途中の暗い絵のまま去った）。
       // 覚えるのも、出せる絵が届いてから——空や 404 なら覚えず、列の道で問い直す（行が古くサムネイルが消えて
@@ -90,12 +92,8 @@ export function GridThumb({
       };
       el.addEventListener("load", settle, { once: true });
       el.addEventListener("error", settle, { once: true });
-      // 帯を掴んで動かしている間は、とどまったタイルだけ読む（`railMotion`）
-      const dwell = railMotion.dragging ? railMotion.dwellMs : 0;
-      const timer = dwell > 0 ? window.setTimeout(() => { el.src = src; }, dwell) : undefined;
-      if (timer === undefined) el.src = src;
+      el.src = src;
       return () => {
-        window.clearTimeout(timer);
         el.removeEventListener("load", settle);
         el.removeEventListener("error", settle);
       };

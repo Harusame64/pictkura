@@ -9264,8 +9264,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       const from = el.scrollTop, to = Math.round(total * f);
                       const glide = (window as unknown as { __spikeGlide?: number }).__spikeGlide ?? 450;
                       const steps = Math.max(1, Math.round(glide / 16));
-                      const dw = (window as unknown as { __spikeDwell?: number }).__spikeDwell ?? 120;
-                      railMotion.dwellMs = dw; railMotion.dragging = dw > 0;
+                      railMotion.dragging = ((window as unknown as { __spikeQueue?: number }).__spikeQueue ?? 1) > 0;
                       for (let k = 1; k <= steps; k++) { el.scrollTop = Math.round(from + ((to - from) * k) / steps); await sleep(16); }
                       railMotion.dragging = false;
                       spikeLog(`STOP f=${f}`);
