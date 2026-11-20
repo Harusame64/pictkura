@@ -157,7 +157,7 @@ p { margin: 0 0 18px; }
 .nav a[aria-current] { color: var(--text); border-bottom: 1px solid var(--accent); padding-bottom: 3px; }
 /* 帯の右端。ダウンロードは狭くしても畳まない——ここだけは押しに来る人がいる */
 .bar-end { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-.bar-end .btn[aria-current] { border-color: var(--accent); color: var(--text); }
+.bar-end .btn[aria-current] { border-color: oklch(0.76 0.09 258 / 0.5); color: var(--text); } /* --accent の半分。:focus-visible の枠と見分けられるように */
 /* ☰ は狭いときだけ出す。JS が無ければ（`js-nav` が付かなければ）最後まで出ない */
 .nav-toggle {
   display: none; align-items: center; justify-content: center;
@@ -586,12 +586,6 @@ th.cnt { text-align: right; }
    備考がリファレンスの上に重なって描かれていた（ゲート2が実描画で発見）。
    下限を置けば、潰れる代わりに**横スクロールで読める** */
 table.cams { table-layout: fixed; min-width: 720px; }
-/* 資料の頁の表は、広い画面のための列幅を HTML に直書きしている（`<th style="width:260px">`）。
-   携帯幅ではそれが左の列を固定し、右の文の列が 100px を割って1行数文字になる。
-   直書きの style は stylesheet から !important でしか外せない */
-@media (max-width: 760px) {
-  .doc-body th[style*="width"] { width: auto !important; }
-}
 
 /* メーカーへ飛ぶ札。**柱ではなく本文に置く**——柱は 900px 以下で消え、
    `position: sticky` に高さの上限が無いので 56社ぶんが画面外へ出る */
@@ -837,10 +831,16 @@ a.author-link:hover { color: var(--accent-bright); }
   .section { padding: 56px var(--pad) 52px; }
   /* 折り返すと番号（06 など）だけが見出しの上に1人で落ちる。折らずに、h2 の中で改行させる */
   .sec-head { gap: 14px; margin-bottom: 28px; }
-  .sec-head h2 { min-width: 0; text-wrap: balance; } /* 「渡す」だけが2行目に落ちないように */
   /* 上で 32px を定義した以上、ここにも書かないと携帯幅で 32px のまま残る */
   .section.photo.canopy .sec-head { margin-bottom: 28px; }
-  .sec-head h2 { font-size: 24px; }
+  /* min-width: 0 で番号の横に留め、長い語は折る。balance は「渡す」だけが2行目に落ちないように */
+  .sec-head h2 { font-size: 24px; min-width: 0; text-wrap: balance; overflow-wrap: anywhere; }
+  /* 資料の頁の表は、広い画面のための列幅を HTML に直書きしている（`<th style="width:260px">`）。
+     携帯幅ではそれが左の列を固定し、右の文の列が 100px を割って1行数文字になる。
+     直書きの style は stylesheet から !important でしか外せない。折れないパスやファイル名が
+     列の最小幅を決めないよう、表の中の code は折ってよいことにする */
+  .doc-body th[style*="width:"] { width: auto !important; }
+  .doc-body td code { overflow-wrap: anywhere; }
   /* h2 が 24px に落ちるので、小見出しも下げて順序を保つ。英語別の値を一度でも
      定義したら、上書きしている枠すべてに英語の行が要る（§22.5 の教訓） */
   .sub-head { font-size: 20px; margin: 40px 0 22px; }
