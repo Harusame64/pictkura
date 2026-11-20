@@ -503,7 +503,7 @@ extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr
 `srw` `rwl` `x3f` `nrw` `ori` produced a full-size preview from every single file; most
 `crw` `raw` `mrw` `dcr` files carry none at all; `dng` splits three ways.
 **[Is your camera in here?](https://harusame64.github.io/pictkura/en/cameras.html)**
-— 923 bodies from 56 makers, with the exact file we measured linked from every row.
+— 924 bodies from 56 makers, with the exact file we measured linked from every row.
 
 One surprise worth knowing up front: **a High Res shot is three files.** An OM System
 body writes `.ORF`, `.ORI` and `.JPG` for a single press, and adding `.ori` means all three
