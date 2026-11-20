@@ -417,6 +417,8 @@ body[lang="en"] .cards p { line-height: 1.75; }
    音は無い（`muted` が無いと自動再生できない）。HTML に `autoplay` は書いておらず、
    再生を始めるのは `assets/demo.js` が「動きを減らす」設定を見たあとだけ */
 .demo { margin: 0 0 44px; }
+/* 撮った大きさ（960px）より広げない。広い画面で本文の幅いっぱいに伸ばすと、ぼやけて動画ばかりが目立つ */
+.demo { max-width: 960px; }
 .demo video {
   display: block; width: 100%; height: auto;
   border: 1px solid var(--line-strong); border-radius: var(--radius);
