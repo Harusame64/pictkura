@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 
 import { formatMonth, formatMonthOnly, t } from "./i18n";
 import { year } from "./i18n/plural.ts";
+import { railMotion } from "./gridThumbs";
 import {
   dayKeyAt,
   fractionAt,
@@ -267,6 +268,7 @@ export function ScrubRail({
     }
   };
   const endDrag = () => {
+    railMotion.dragging = false;
     window.clearTimeout(moveTimer.current);
     moveTimer.current = undefined;
     setDragFraction(null);
@@ -522,7 +524,10 @@ export function ScrubRail({
         if (!drag.current) afterDrag.current = false;
         const d = drag.current;
         if (d) {
-          if (!d.moved && Math.abs(p.y - d.startY) > DRAG_SLOP) d.moved = true;
+          if (!d.moved && Math.abs(p.y - d.startY) > DRAG_SLOP) {
+            d.moved = true;
+            railMotion.dragging = true;
+          }
           if (d.moved) {
             moveWhileDragging(p.fraction);
             setDragFraction(p.fraction);

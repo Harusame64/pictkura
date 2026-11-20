@@ -24,7 +24,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
-import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
+import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs, railMotion } from "./gridThumbs";
 import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
@@ -9264,7 +9264,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       const from = el.scrollTop, to = Math.round(total * f);
                       const glide = (window as unknown as { __spikeGlide?: number }).__spikeGlide ?? 450;
                       const steps = Math.max(1, Math.round(glide / 16));
+                      const dw = (window as unknown as { __spikeDwell?: number }).__spikeDwell ?? 120;
+                      railMotion.dwellMs = dw; railMotion.dragging = dw > 0;
                       for (let k = 1; k <= steps; k++) { el.scrollTop = Math.round(from + ((to - from) * k) / steps); await sleep(16); }
+                      railMotion.dragging = false;
                       spikeLog(`STOP f=${f}`);
                       for (let k = 0; k <= 30; k++) { probe(`f=${f} t=${k * 50}`); await sleep(50); }
                     }

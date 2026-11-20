@@ -1,5 +1,5 @@
 import { useLayoutEffect, useReducer, useRef, useState } from "react";
-import { paintable, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
+import { paintable, railMotion, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
 import type { TileAttach } from "./useTileQueue";
 
 /** タイルごとの鍵（同じ写真のタイルが同時に2枚ありうるので、URL とは別に振る） */
@@ -90,8 +90,12 @@ export function GridThumb({
       };
       el.addEventListener("load", settle, { once: true });
       el.addEventListener("error", settle, { once: true });
-      el.src = src;
+      // 帯を掴んで動かしている間は、とどまったタイルだけ読む（`railMotion`）
+      const dwell = railMotion.dragging ? railMotion.dwellMs : 0;
+      const timer = dwell > 0 ? window.setTimeout(() => { el.src = src; }, dwell) : undefined;
+      if (timer === undefined) el.src = src;
       return () => {
+        window.clearTimeout(timer);
         el.removeEventListener("load", settle);
         el.removeEventListener("error", settle);
       };
