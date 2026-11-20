@@ -25,13 +25,14 @@
    * サイト側はダーク固定だが、こちらはアプリの見た目に合わせて **OSのテーマに追従**する。
    */
   :root {
-    /* 色はアプリ 1.1.0 の ui/src/tokens.css（藍と生成り）に合わせる。
-       明るいテーマは生成りの地（--n-1）と沈んだ藍。faint はアプリと同じ 0.52——地の上で 4.6:1 以上 */
+    /* 文字と藍はアプリ 1.1.0 の ui/src/tokens.css（藍と生成り）に合わせる。
+       明るいテーマは地も生成り（--n-1）。faint はアプリと同じ 0.52——地の上で 4.6:1 以上。
+       暗いテーマの地はサイトと同じ値のまま（アプリの地より一段暗い） */
     --bg: oklch(0.972 0.006 85); --surface: oklch(0.99 0.003 85); --surface-2: oklch(0.94 0.008 85);
     --text: oklch(0.25 0.007 70); --text-muted: oklch(0.45 0.01 70); --text-faint: oklch(0.52 0.01 75);
     --line: oklch(0 0 0 / 0.1); --line-strong: oklch(0 0 0 / 0.18);
     --accent: oklch(0.42 0.11 262); --accent-soft: oklch(0.42 0.11 262 / 0.1);
-    --warn-bg: oklch(0.97 0.03 85); --warn-line: oklch(0.68 0.15 60);
+    --warn-bg: oklch(0.955 0.04 85); --warn-line: oklch(0.68 0.15 60);
     --radius: 4px;
     color-scheme: light;
   }
@@ -79,6 +80,8 @@
   }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
+  /* 本文の中のリンクは色だけでは見分けにくい（藍は本文の字と明るさが近い）ので、下線を常に付ける */
+  p a, li a, td a, .note a { text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* ── 上のバー（サイトと同じ並び） ── */
@@ -189,7 +192,7 @@
   nav.toc li { counter-increment: toc; }
   nav.toc a {
     display: block; padding: 6px 0 6px 18px; color: var(--text-muted);
-    border-left: 1px solid transparent; margin-left: -1px;
+    border-left: 1px solid transparent; margin-left: -1px; text-decoration: none;
   }
   nav.toc a::before {
     content: counter(toc, decimal-leading-zero);
