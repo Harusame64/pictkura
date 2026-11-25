@@ -957,6 +957,10 @@ impl Db {
                 path_key TEXT PRIMARY KEY,
                 mtime_ms INTEGER NOT NULL
             ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS tiny_px (
+                id INTEGER PRIMARY KEY,
+                px BLOB NOT NULL
+            );
             "#,
         )?;
         // R1 の版（#210）の表には端数の列が無い（未公開の版。在る行は端数 0 として読む）
@@ -2036,6 +2040,36 @@ impl Db {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// spike #76: 4x4 RGB (48 bytes) of a photo's thumbnail, for the grid to paint while the picture is not here.
+    pub fn set_tiny(&self, id: i64, px: &[u8]) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO tiny_px (id, px) VALUES (?1, ?2)",
+            params![id, px],
+        )?;
+        Ok(())
+    }
+
+    /// spike #76: the tiny colours of a day's photos (id → 48 bytes)
+    pub fn tiny_for_day(&self, day_key: i64) -> Result<Vec<(i64, Vec<u8>)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT t.id, t.px FROM tiny_px t JOIN media m ON m.id = t.id WHERE m.day_key = ?1",
+        )?;
+        let rows = stmt.query_map([day_key], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// spike #76: rows with a thumbnail file but no tiny colours yet (for the backfill)
+    pub fn tiny_missing(&self, limit: usize) -> Result<Vec<(i64, PathBuf)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.id, m.thumb_path FROM media m LEFT JOIN tiny_px t ON t.id = m.id
+             WHERE m.thumb_path IS NOT NULL AND m.thumb_state IN (1, 2) AND t.id IS NULL LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// 高品質サムネイルの合計ディスク使用量（バイト）。部分インデックスで返る。

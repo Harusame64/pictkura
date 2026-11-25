@@ -1,3 +1,4 @@
+import { tinyUrl } from "./tinyPx";
 // **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
 import {
@@ -9285,7 +9286,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                   ? " spread" + (cell.spread.join ? " spread-join" : "")
                                   : "")
                               }
-                              style={{ width: cell.w, height: cell.h }}
+                              style={{
+                                width: cell.w,
+                                height: cell.h,
+                                // spike #76: the photo's 4x4 colours as the ground until the picture is here
+                                backgroundImage: tinyUrl(cell.item.id),
+                                backgroundSize: "cover",
+                                backgroundPosition: "center",
+                              }}
                               // 閉じるときに戻る先を引く（dev #52）。組のどれを見ていても同じタイルへ
                               data-ids={cell.files.map((f) => f.id).join(" ")}
                               data-testid="tile"

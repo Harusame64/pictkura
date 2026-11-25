@@ -1808,6 +1808,13 @@ pub fn drain_thumb_trash(
     Ok(removed)
 }
 
+/// spike #76: 4x4 RGB of a thumbnail file (48 bytes), or None if it cannot be read
+pub fn tiny_px(path: &Path) -> Option<Vec<u8>> {
+    let img = image::open(path).ok()?;
+    let small = img.thumbnail_exact(4, 4).to_rgb8();
+    Some(small.into_raw())
+}
+
 /// 一時ファイルに書いたサムネイルを、**行がまだ同じ版のときだけ**本当の名前へ付け替えて記録する（F1）。
 ///
 /// 以前は本当の名前へ直接書いてから行を更新していた。作業の途中で行が新しくなる（回した・外で書き換えた）と、
@@ -1837,6 +1844,10 @@ fn publish_thumb(
     });
     match published {
         Ok(Some(())) => {
+            // spike #76: keep the tiny colours next to the thumbnail
+            if let Some(px) = tiny_px(final_path) {
+                let _ = db.set_tiny(id, &px);
+            }
             if let Some(old) = &record.thumb_path {
                 if old != final_path {
                     let _ = std::fs::remove_file(old);
@@ -6598,5 +6609,28 @@ mod tests {
         let data = read_exif_meta(&path);
         assert!(data.taken_at_ms.is_some(), "プレビューのEXIFから日付を拾う");
         assert!(data.thumbnail.is_none(), "それでも絵は残さない");
+    }
+}
+
+#[cfg(test)]
+mod spike76_tests {
+    /// spike #76: left half red, right half blue → the 4x4 keeps that split, row-major RGB
+    #[test]
+    fn tiny_px_keeps_where_the_colours_are() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.png");
+        let img = image::RgbImage::from_fn(64, 48, |x, _| {
+            if x < 32 {
+                image::Rgb([255, 0, 0])
+            } else {
+                image::Rgb([0, 0, 255])
+            }
+        });
+        img.save(&p).unwrap();
+        let px = super::tiny_px(&p).unwrap();
+        assert_eq!(px.len(), 48);
+        assert_eq!(&px[0..3], &[255, 0, 0]);
+        assert_eq!(&px[9..12], &[0, 0, 255]);
+        assert_eq!(&px[36..39], &[255, 0, 0]);
     }
 }

@@ -1,3 +1,4 @@
+import { rememberTiny } from "./tinyPx";
 // バックエンド(Rust)とのIPC境界。フロントエンドは表示のみを行う。
 //
 // スケールの原則（plan.md 第3部 段階A）:
@@ -8,6 +9,8 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { locale, readLocaleChoice, t } from "./i18n";
 
 export interface MediaItem {
+  /** spike #76: 4x4 RGB hex from `list_days` */
+  tiny?: string | null;
   id: number;
   file_name: string;
   /** **原本**の寸法。グリッドの枠確保に使う（未抽出は0） */
@@ -398,7 +401,11 @@ export interface DayItems {
   error: string | null;
 }
 export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) =>
-  invoke<DayItems[]>("list_days", { dayKeys, query, filter });
+  invoke<DayItems[]>("list_days", { dayKeys, query, filter }).then((days) => {
+    // spike #76
+    for (const d of days) for (const it of d.items ?? []) rememberTiny(it.id, it.tiny);
+    return days;
+  });
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */

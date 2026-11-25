@@ -868,6 +868,8 @@ struct MediaItemDto {
     /// `taken_at_ms` が**本物の撮影日時**か（偽なら mtime で埋めた値）。一覧は、撮影日時が
     /// 読めた同士でしか RAW+JPEG を重ねない——mtime が偶然同じ別の写真を組にしない（PRのcodex）
     taken_at_known: bool,
+    /// spike #76: 4x4 RGB as hex (96 chars), filled by `list_days` only
+    tiny: Option<String>,
     /// `taken_at_ms` が秒未満まで分かっているか（dev #32。連写は間隔で切るので、
     /// 秒までしか分からない写真は束ねない）
     taken_subsec: bool,
@@ -906,6 +908,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             is_raw: pictkura_core::raw::is_raw_path(&r.path),
             // 更新日時で埋めた値は「分かっていない」（F2、dev #44）。組・連写はこれで決まる
             taken_at_known: r.taken_at_is_real(),
+            tiny: None,
             taken_subsec: r.taken_subsec == Some(true),
             body_key: pictkura_core::burst::body_key(r.camera_id, r.body_serial.as_deref()),
             is_jpeg: pictkura_core::jpeg::is_jpeg_path(&r.path),
@@ -1519,11 +1522,29 @@ async fn list_days(
             .iter()
             .map(
                 |&day_key| match state.read_pool.with(|db| db.search_day(day_key, &query)) {
-                    Ok(v) => DayItemsDto {
-                        day_key,
-                        items: Some(v.into_iter().map(Into::into).collect()),
-                        error: None,
-                    },
+                    Ok(v) => {
+                        // spike #76: the day's tiny colours ride along with its rows
+                        let tiny: std::collections::HashMap<i64, Vec<u8>> = state
+                            .read_pool
+                            .with(|db| db.tiny_for_day(day_key))
+                            .map(|v| v.into_iter().collect())
+                            .unwrap_or_default();
+                        DayItemsDto {
+                            day_key,
+                            items: Some(
+                                v.into_iter()
+                                    .map(|r| {
+                                        let mut d = MediaItemDto::from(r);
+                                        d.tiny = tiny.get(&d.id).map(|px| {
+                                            px.iter().map(|b| format!("{b:02x}")).collect()
+                                        });
+                                        d
+                                    })
+                                    .collect(),
+                            ),
+                            error: None,
+                        }
+                    }
                     Err(e) => DayItemsDto {
                         day_key,
                         items: None,
@@ -8821,6 +8842,40 @@ pub fn run() {
 
             // 設定「サムネイルを自動生成」の配り手
             spawn_auto_thumbs(app.handle().clone());
+
+            // spike #76: fill tiny colours for thumbnails made before this build
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let state = handle.state::<AppState>();
+                    let started = std::time::Instant::now();
+                    let mut n = 0usize;
+                    loop {
+                        let Ok(rows) = state.read_pool.with(|db| db.tiny_missing(500)) else {
+                            break;
+                        };
+                        if rows.is_empty() {
+                            break;
+                        }
+                        let mut wrote = 0;
+                        for (id, path) in rows {
+                            let px = pictkura_core::thumbs::tiny_px(&path)
+                                .unwrap_or_else(|| vec![0x80; 48]);
+                            if lock_ok(&state.db).set_tiny(id, &px).is_ok() {
+                                wrote += 1;
+                            }
+                        }
+                        n += wrote;
+                        if wrote == 0 {
+                            break;
+                        }
+                    }
+                    applog::note(&format!(
+                        "spike76 tiny backfill: {n} rows in {} ms",
+                        started.elapsed().as_millis()
+                    ));
+                });
+            }
 
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
             rebuild_watcher(app.handle());
