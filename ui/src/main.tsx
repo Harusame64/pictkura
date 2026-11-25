@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
+import "./dragProbe";
 import { getHostPlatform, isMac, rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
 import { dirOf } from "./direction";
 import { locale } from "./i18n";
