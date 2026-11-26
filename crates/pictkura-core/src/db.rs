@@ -2075,26 +2075,40 @@ impl Db {
         Ok(())
     }
 
-    /// 日ごとの写真の 4x4 の色（id → [`TINY_PX_LEN`] バイト）。「読めなかった」の印は返さない
+    /// 日ごとの写真の 4x4 の色（id → (そのときの版, [`TINY_PX_LEN`] バイト)）。「読めなかった」の印は返さない。
+    /// 版を添えるのは、日の一覧（別の読み）と突き合わせるため——2つの読みの間に回されて色だけ新しくなった写真を、
+    /// 古い版の色として渡さない
     pub fn tiny_for_days(
         &self,
         day_keys: &[i64],
-    ) -> Result<std::collections::HashMap<i64, Vec<u8>>, DbError> {
+    ) -> Result<std::collections::HashMap<i64, (i64, Vec<u8>)>, DbError> {
         let mut out = std::collections::HashMap::new();
         let mut stmt = self.conn.prepare_cached(
-            "SELECT t.id, t.px FROM media m JOIN tiny_px t ON t.id = m.id
+            "SELECT t.id, m.rev, t.px FROM media m JOIN tiny_px t ON t.id = m.id
              WHERE m.day_key = ?1 AND length(t.px) = ?2",
         )?;
         for &day in day_keys {
             let rows = stmt.query_map(params![day, TINY_PX_LEN as i64], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Vec<u8>>(2)?,
+                ))
             })?;
             for row in rows {
-                let (id, px) = row?;
-                out.insert(id, px);
+                let (id, rev, px) = row?;
+                out.insert(id, (rev, px));
             }
         }
         Ok(out)
+    }
+
+    /// 「読めなかった」の印を外す（掃除役が起動ごとに1回。一時的に読めなかった——ウイルス対策が掴んでいた、
+    /// 置き場のドライブがまだ無かった——サムネイルを、次の起動で1回だけ読み直す）
+    pub fn forget_unreadable_tiny(&self) -> Result<usize, DbError> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM tiny_px WHERE length(px) = 0", [])?)
     }
 
     /// サムネイルはあるのに 4x4 の色がまだ無い行（前の版で作ったサムネイル、版が進んだ後もサムネイルが
@@ -2111,20 +2125,25 @@ impl Db {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// 埋めた色を置く。**読んだときと同じサムネイルのままの行だけ**（読む間に付け替わった行へ古い色を書かない）
+    /// 埋めた色を置く。置いたかを返す。
+    ///
+    /// - **読んだときと同じサムネイルのパスの行だけ**（読む間に付け替わった行へ書かない）
+    /// - **まだ色が無い行だけ**（`INSERT OR IGNORE`）。サムネイルの名前は写真ごとに決まっていて、即席も本番も
+    ///   回した後も同じパスになりうる。パスが同じでも、読む間にサムネイルを作り直した書き込み
+    ///   （[`crate::thumbs`] の `publish_thumb`、色も一緒に置く）が先に入っていれば、そちらが正しい
+    ///   （PR #366 の /code-review）
     pub fn fill_tiny(&mut self, id: i64, thumb_path: &Path, px: &[u8]) -> Result<bool, DbError> {
         let tx = self.write_tx()?;
         let same = tx
             .prepare_cached("SELECT 1 FROM media WHERE id = ?1 AND thumb_path = ?2")?
             .exists(params![id, thumb_path.to_string_lossy()])?;
-        if same {
-            tx.execute(
-                "INSERT OR REPLACE INTO tiny_px (id, px) VALUES (?1, ?2)",
+        let wrote = same
+            && tx.execute(
+                "INSERT OR IGNORE INTO tiny_px (id, px) VALUES (?1, ?2)",
                 params![id, px],
-            )?;
-        }
+            )? > 0;
         tx.commit()?;
-        Ok(same)
+        Ok(wrote)
     }
 
     /// 高品質サムネイルの合計ディスク使用量（バイト）。部分インデックスで返る。
@@ -8205,7 +8224,7 @@ mod tests {
 
         let listed = db.tiny_for_days(&[day]).unwrap();
         assert_eq!(listed.len(), 1);
-        assert_eq!(listed[&a], vec![9; TINY_PX_LEN]);
+        assert_eq!(listed[&a].1, vec![9; TINY_PX_LEN]);
 
         // c だけ（a は色あり、b は印あり、d はサムネイルが無い）
         let todo: Vec<i64> = db
@@ -8228,6 +8247,31 @@ mod tests {
         assert!(db
             .fill_tiny(c, Path::new("t/c-new.webp"), &[3; TINY_PX_LEN])
             .unwrap());
-        assert_eq!(db.tiny_for_days(&[day]).unwrap()[&c], vec![3; TINY_PX_LEN]);
+        assert_eq!(
+            db.tiny_for_days(&[day]).unwrap()[&c].1,
+            vec![3; TINY_PX_LEN]
+        );
+        // 版も添える（日の一覧の項目と突き合わせる）
+        let rev_c = db.get_by_id(c).unwrap().unwrap().rev;
+        assert_eq!(db.tiny_for_days(&[day]).unwrap()[&c].0, rev_c);
+
+        // 既に色がある行へは書かない（読む間に作り直したサムネイルの色が勝つ）
+        assert!(!db
+            .fill_tiny(c, Path::new("t/c-new.webp"), &[4; TINY_PX_LEN])
+            .unwrap());
+        assert_eq!(
+            db.tiny_for_days(&[day]).unwrap()[&c].1,
+            vec![3; TINY_PX_LEN]
+        );
+
+        // 読めなかった印は起動ごとに外す（次の起動で1回だけ読み直す）
+        assert_eq!(db.forget_unreadable_tiny().unwrap(), 1);
+        let todo: Vec<i64> = db
+            .tiny_to_fill(10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.0)
+            .collect();
+        assert_eq!(todo, vec![b]);
     }
 }

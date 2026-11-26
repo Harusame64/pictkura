@@ -3700,7 +3700,10 @@ mod tests {
         assert_eq!(row.thumb_state, 2);
         // 4x4 の色もサムネイルと同じ書き込みで入る（古い版の作業は入れていない）
         assert_eq!(
-            db.tiny_for_days(&[row.day_key]).unwrap().get(&id),
+            db.tiny_for_days(&[row.day_key])
+                .unwrap()
+                .get(&id)
+                .map(|t| &t.1),
             Some(&vec![1u8; 48])
         );
     }

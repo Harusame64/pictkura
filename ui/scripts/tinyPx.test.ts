@@ -26,7 +26,16 @@ test("colours are kept by id and version: a newer version does not show the old 
   assert.equal(tinyPixels(7, 2), undefined, "rotated (rev 2): nothing until its own colours arrive");
   rememberTiny(7, 2, hexOf(new Array(48).fill(20)));
   assert.equal(tinyPixels(7, 2)?.[0], 20);
-  // the first colours of a version stay (a later list with null does not wipe them)
+  // a later list with null does not wipe them
   rememberTiny(7, 2, null);
   assert.equal(tinyPixels(7, 2)?.[0], 20);
+});
+
+test("different colours for the same version replace the first ones (instant → final thumbnail)", () => {
+  rememberTiny(8, 1, hexOf(new Array(48).fill(0)));
+  const first = tinyPixels(8, 1);
+  rememberTiny(8, 1, hexOf(new Array(48).fill(0)));
+  assert.equal(tinyPixels(8, 1), first, "same colours: same array, the canvas is not redrawn");
+  rememberTiny(8, 1, hexOf(new Array(48).fill(99)));
+  assert.equal(tinyPixels(8, 1)?.[0], 99);
 });

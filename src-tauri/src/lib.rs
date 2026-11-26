@@ -1546,7 +1546,12 @@ async fn list_days(
                                 v.into_iter()
                                     .map(|r| {
                                         let mut d = MediaItemDto::from(r);
-                                        d.tiny = tiny.get(&d.id).map(|px| hex_of(px));
+                                        // 同じ版の色だけ（2つの読みの間に回された写真の、新しい向きの色を
+                                        // 古い版の項目に付けない。PR #366 の /code-review）
+                                        d.tiny = tiny
+                                            .get(&d.id)
+                                            .filter(|(rev, _)| *rev == d.rev)
+                                            .map(|(_, px)| hex_of(px));
                                         d
                                     })
                                     .collect(),
@@ -7347,6 +7352,8 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
         pictkura_core::panics::catching("tiny filler", move || {
             std::thread::sleep(std::time::Duration::from_secs(20));
             let state = app.state::<AppState>();
+            // 前の起動で読めなかったサムネイルを、この起動で1回だけ読み直す
+            let _ = lock_ok(&state.db).forget_unreadable_tiny();
             let mut filled = 0usize;
             let mut started: Option<std::time::Instant> = None;
             loop {
@@ -7367,15 +7374,30 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
                 }
                 started.get_or_insert_with(std::time::Instant::now);
                 let mut wrote = 0usize;
+                let mut failed: Option<String> = None;
                 for (id, path) in rows {
                     let px = pictkura_core::thumbs::tiny_px_of_file(&path).unwrap_or_default();
-                    if let Ok(true) = lock_ok(&state.db).fill_tiny(id, &path, &px) {
-                        wrote += 1;
+                    match lock_ok(&state.db).fill_tiny(id, &path, &px) {
+                        Ok(true) => wrote += 1,
+                        Ok(false) => {}
+                        Err(e) => {
+                            // 書けない（DB が長く握られている等）。同じ 64 枚を読み続けないよう、この周を
+                            // 打ち切って長く待つ（PR #366 の /code-review）
+                            failed = Some(e.to_string());
+                            break;
+                        }
                     }
                 }
                 filled += wrote;
-                // 1 枚も書けなかった（読む間に全部付け替わった・書き込みの失敗）なら少し長く待つ
-                let pause = if wrote == 0 { 5_000 } else { 50 };
+                let pause = if let Some(e) = failed {
+                    applog::note(&format!("tiny colours: cannot write, waiting: {e}"));
+                    60_000
+                } else if wrote == 0 {
+                    // 読む間に全部付け替わった
+                    5_000
+                } else {
+                    50
+                };
                 std::thread::sleep(std::time::Duration::from_millis(pause));
             }
         });

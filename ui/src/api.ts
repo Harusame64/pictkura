@@ -3,8 +3,8 @@
 // スケールの原則（plan.md 第3部 段階A）:
 // 全件を一括転送するAPIは存在しない。「日付→枚数」のサマリ（timelineSummary）で
 // タイムラインの骨組みを作り、可視範囲の日だけを listDay で取得する。
-import { rememberTiny } from "./tinyPx";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { rememberTiny } from "./tinyPx";
 
 import { locale, readLocaleChoice, t } from "./i18n";
 

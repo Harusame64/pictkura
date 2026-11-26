@@ -1481,8 +1481,6 @@ input[type="range"]:focus-visible {
     opacity var(--dur-fast) var(--easing);
   opacity: 0;
 }
-/* サムネイルがもうあるタイル（`GridThumb.tsx` の `ready`）は、届いたらその場で出す。一気に送ると、タイルが画面に
-   居るのは数十 ms——浮かべると、多くがフェードの途中の暗い絵のまま去った（win2: 動いている間の絵 0.79 → 0.50） */
 /* 絵が届くまでの地（4x4 の色をぼかしたもの。`TinyCanvas.tsx`）。写真の <img> の下に敷く */
 .tiny-ground {
   position: absolute;
@@ -1496,6 +1494,8 @@ input[type="range"]:focus-visible {
   /* 地（絶対配置の canvas）より上に描く */
   position: relative;
 }
+/* サムネイルがもうあるタイル（`GridThumb.tsx` の `ready`）は、届いたらその場で出す。一気に送ると、タイルが画面に
+   居るのは数十 ms——浮かべると、多くがフェードの途中の暗い絵のまま去った（win2: 動いている間の絵 0.79 → 0.50） */
 .cell[data-instant] {
   transition: filter var(--dur-fast) var(--easing);
 }
