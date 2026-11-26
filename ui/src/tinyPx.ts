@@ -1,42 +1,33 @@
 /**
  * spike #76: each photo's 4x4 colours (from `list_days`), drawn as the tile's ground until the picture is here.
  * Kept by id outside React: `media-updated` patches do not carry them, so a patch must not wipe them.
+ *
+ * Drawn as CSS gradients, not an image: the app's CSP (`img-src 'self' media: …`) refuses `data:` images, so a
+ * data-URL BMP was never painted (win2, 2026-11-26: 98 violations in 1.5 s). Four rows, each smooth left to
+ * right; rows step top to bottom.
  */
-const urls = new Map<number, string>();
+export type TinyGround = { backgroundImage: string; backgroundSize: string; backgroundPosition: string };
 
-function bmp4x4(hex: string): string {
-  const px = new Uint8Array(48);
-  for (let i = 0; i < 48; i++) px[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  const b = new Uint8Array(54 + 48);
-  const v = new DataView(b.buffer);
-  b[0] = 0x42;
-  b[1] = 0x4d;
-  v.setUint32(2, b.length, true);
-  v.setUint32(10, 54, true);
-  v.setUint32(14, 40, true);
-  v.setInt32(18, 4, true);
-  v.setInt32(22, 4, true);
-  v.setUint16(26, 1, true);
-  v.setUint16(28, 24, true);
-  v.setUint32(34, 48, true);
-  // BMP rows go bottom-up, pixels are BGR; 4 px * 3 = 12 bytes, already a multiple of 4
+const grounds = new Map<number, TinyGround>();
+
+const ROW_POS = "0 0, 0 33.333%, 0 66.667%, 0 100%";
+
+function ground(hex: string): TinyGround {
+  const rows: string[] = [];
   for (let y = 0; y < 4; y++) {
+    const stops: string[] = [];
     for (let x = 0; x < 4; x++) {
-      const src = (y * 4 + x) * 3;
-      const dst = 54 + (3 - y) * 12 + x * 3;
-      b[dst] = px[src + 2];
-      b[dst + 1] = px[src + 1];
-      b[dst + 2] = px[src];
+      const i = (y * 4 + x) * 6;
+      stops.push(`#${hex.slice(i, i + 6)}`);
     }
+    rows.push(`linear-gradient(to right, ${stops.join(", ")})`);
   }
-  let s = "";
-  for (const c of b) s += String.fromCharCode(c);
-  return `url(data:image/bmp;base64,${btoa(s)})`;
+  return { backgroundImage: rows.join(", "), backgroundSize: "100% 25%", backgroundPosition: ROW_POS };
 }
 
 export function rememberTiny(id: number, hex: string | null | undefined) {
-  if (!hex || hex.length !== 96 || urls.has(id)) return;
-  urls.set(id, bmp4x4(hex));
+  if (!hex || hex.length !== 96 || grounds.has(id)) return;
+  grounds.set(id, ground(hex));
 }
 
-export const tinyUrl = (id: number) => urls.get(id);
+export const tinyGround = (id: number) => grounds.get(id);
