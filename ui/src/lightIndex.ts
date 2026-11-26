@@ -86,17 +86,34 @@ export function decodeLightIndex(buf: ArrayBuffer): LightIndex | null {
 }
 
 /**
- * 届いた差分（`media-updated`）が、索引で並べた形を変えるか（版・日・縦横比）。変えるなら索引を読み直す。
- * サムネイルの段階だけの差分は変えない（タイルの絵は本番の行が届けば替わる）——サムネイルを作っている間、
- * 何千回も読み直さない
+ * 一覧の並びを決める欄（版・日・縦横比と、重ねの組み方・表紙の選び方に効く欄）。`stacksOfDay` が読む欄を
+ * 足したら、ここにも足す
  */
-export function changesLightLayout(
-  index: LightIndex | null,
-  p: { id: number; rev: number; day_key: number; width: number; height: number },
-): boolean {
+const LAYOUT_FIELDS = [
+  "rev",
+  "day_key",
+  "width",
+  "height",
+  "taken_at_ms",
+  "taken_at_known",
+  "taken_subsec",
+  "shot_key",
+  "body_key",
+  "is_raw",
+  "is_video",
+  // 連写の表紙は ⚑ の付いたコマ（表紙の縦横比がタイルの幅になる）
+  "picked",
+] as const satisfies readonly (keyof LightItem)[];
+
+/**
+ * 届いた差分（`media-updated`）が、索引で並べた形を変えるか。変えるなら索引を読み直す。
+ * サムネイルの段階だけの差分は変えない（タイルの絵は本番の行が届けば替わる）——サムネイルを作っている間、
+ * 何千回も読み直さない。索引に居ない写真（「読み込み中」の束から出てきた写真）は、骨組みの枚数のずれで拾う
+ */
+export function changesLightLayout(index: LightIndex | null, p: Pick<LightItem, (typeof LAYOUT_FIELDS)[number] | "id">): boolean {
   const it = index?.byId.get(p.id);
   if (!it) return false;
-  return it.rev !== p.rev || it.day_key !== p.day_key || it.width !== p.width || it.height !== p.height;
+  return LAYOUT_FIELDS.some((k) => it[k] !== p[k]);
 }
 
 /**

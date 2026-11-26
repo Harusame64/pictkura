@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeLightIndex, LIGHT_INDEX_MAGIC, LIGHT_RECORD_LEN, usableLightDays } from "../src/lightIndex.ts";
+import { changesLightLayout, decodeLightIndex, LIGHT_INDEX_MAGIC, LIGHT_RECORD_LEN, usableLightDays } from "../src/lightIndex.ts";
 
 /** Rust の `pack_light_index` の表どおりに 1 枚を書く（位置は表から写す。Rust の試験も同じ表を見る） */
 function record(v: DataView, o: number, r: {
@@ -92,4 +92,20 @@ test("only days whose count matches the summary are used", () => {
     { day_key: 0, count: 1 }, // not in the index at all
   ]);
   assert.deepEqual([...ok], [2]);
+});
+
+test("an update that changes the layout asks for a new index; a thumbnail-only update does not", () => {
+  const idx = decodeLightIndex(indexOf([{ ...base, id: 5, shot: 9, day: 20261126, flags: 4 | 8 }]))!;
+  const it = idx.byId.get(5)!;
+  const thumbOnly = { ...it, thumb_state: 1, has_thumb: false };
+  assert.equal(changesLightLayout(idx, thumbOnly), false, "thumbnail stage only");
+  assert.equal(changesLightLayout(idx, { ...it, id: 6 }), false, "not in the index");
+  assert.equal(changesLightLayout(null, it), false);
+  for (const [k, v] of [
+    ["rev", 4], ["day_key", 20261125], ["width", 4000], ["height", 6000], ["taken_at_ms", 1],
+    ["taken_at_known", false], ["taken_subsec", false], ["shot_key", 1], ["body_key", 7],
+    ["is_raw", true], ["is_video", true], ["picked", true],
+  ] as const) {
+    assert.equal(changesLightLayout(idx, { ...it, [k]: v }), true, k);
+  }
 });

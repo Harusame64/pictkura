@@ -328,10 +328,12 @@ const FAST_FLIP_MS = 400;
 /** 読めなかった日を取り直すまで（ms） */
 const DAY_RETRY_MS = 2000;
 /**
- * 軽い索引を読み直すまでの待ち（`scheduleLightReload`）。取り込み・撮影日の読み込みの間は骨組みが2秒ごとに
- * 読み直されるので、そのたびに全件を読まないようまとめる
+ * 軽い索引を読み直すまでの待ち（`scheduleLightReload`）と、続けて読む間隔の下限。取り込み・撮影日の読み込みの間は
+ * 骨組みが2秒ごとに読み直され、差分も写真ごとに届くので、そのたびに全件を読まない——ずれた日は読み直すまで
+ * 仮の行で並ぶだけ（/code-review）
  */
 const LIGHT_RELOAD_MS = 5000;
+const LIGHT_RELOAD_GAP_MS = 30_000;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -1616,11 +1618,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const lightRef = useRef<LightIndex | null>(null);
   lightRef.current = light;
   const lightTimerRef = useRef<number | null>(null);
-  /** 軽い索引を読む。世代が替わっていたら捨てる。落ちても黙る（索引は飾り——仮の行で今までどおり並ぶ） */
+  /** 頼んだ順の番号と、当てた最後の番号（遅れて届いた古い索引で、新しい索引を上書きしない。/code-review） */
+  const lightSeqRef = useRef({ asked: 0, applied: 0 });
+  /** 最後に読み始めた時刻（続けて読む間隔の下限を数える） */
+  const lightAskedAtRef = useRef(0);
+  /**
+   * 軽い索引を読む。世代が替わっていた・後から頼んだ分が先に当たっていたら捨てる。落ちても黙る（索引は飾り——仮の行で
+   * 今までどおり並ぶ。読めないままなら、骨組みの読み直しがまた頼む）
+   */
   const loadLight = useCallback((gen: number) => {
+    const seq = ++lightSeqRef.current.asked;
+    lightAskedAtRef.current = Date.now();
     lightIndex(queryRef.current, filterRef.current)
       .then((buf) => {
-        if (generationRef.current !== gen) return;
+        if (generationRef.current !== gen || seq < lightSeqRef.current.applied) return;
+        lightSeqRef.current.applied = seq;
         setLight(decodeLightIndex(buf));
       })
       .catch(() => {});
@@ -1631,10 +1643,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    */
   const scheduleLightReload = useCallback(() => {
     if (lightTimerRef.current != null) return;
+    const wait = Math.max(LIGHT_RELOAD_MS, lightAskedAtRef.current + LIGHT_RELOAD_GAP_MS - Date.now());
     lightTimerRef.current = window.setTimeout(() => {
       lightTimerRef.current = null;
       loadLight(generationRef.current);
-    }, LIGHT_RELOAD_MS);
+    }, wait);
   }, [loadLight]);
   useEffect(
     () => () => {
@@ -1654,8 +1667,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     failedDaysRef.current.clear();
-    // 前の検索・絞り込みの索引は使わない（枚数が偶然合った日に、別の写真が並ぶ）
+    // 前の検索・絞り込みの索引は使わない（枚数が偶然合った日に、別の写真が並ぶ）。待っている読み直しも捨てる
+    // （この後すぐ読む）
     setLight(null);
+    if (lightTimerRef.current != null) {
+      window.clearTimeout(lightTimerRef.current);
+      lightTimerRef.current = null;
+    }
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1796,8 +1814,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     setLoadError(null);
     setStats(st);
     // 枚数の合わない日が出たら、索引を読み直す（写真が入った・移った。「読み込み中の写真」の束は数が動き続けるので見ない）
+    // 索引が無い（読めなかった）ときも頼み直す
     const li = lightRef.current;
-    if (li && sum.some((d) => d.day_key !== UNREAD_DAY && (li.days.get(d.day_key)?.length ?? 0) !== d.count)) {
+    if (!li || sum.some((d) => d.day_key !== UNREAD_DAY && (li.days.get(d.day_key)?.length ?? 0) !== d.count)) {
       scheduleLightReload();
     }
     setDayItems((prev) => {
@@ -3503,12 +3522,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 軽い索引で並べる日の重ね（pictkura-dev #76）。**組み方・広げ方は本番（`dayStacks`）と同じ**——違えば、本番の行が
    * 届いたときにタイルが跳ねる。骨組みと枚数の合う日だけ（`usableLightDays`）
    */
-  const lightStacks = useMemo(() => {
+  // 組むのは索引・組み方・広げ方が替わったときだけ（骨組みは2秒ごとに読み直されるので、それでは組み直さない。
+  // /code-review）。骨組みで決めるのは、どの日を使うかだけ
+  const lightGrouped = useMemo(() => {
     const out = new Map<number, Stack<MediaItem>[]>();
     if (!light) return out;
-    for (const dayKey of usableLightDays(light.days, summary)) {
-      if (dayKey === UNREAD_DAY) continue;
-      const stacks = stacksOfDay(light.days.get(dayKey) ?? [], {
+    for (const [dayKey, items] of light.days) {
+      const stacks = stacksOfDay(items, {
         rawJpeg: stackRawJpeg,
         bursts: stackBursts,
         burstGapMs,
@@ -3516,7 +3536,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       out.set(dayKey, spreadIds.size === 0 ? stacks : spreadStacks(stacks, spreadIds, !stackRawJpeg));
     }
     return out;
-  }, [light, summary, stackRawJpeg, stackBursts, burstGapMs, spreadIds]);
+  }, [light, stackRawJpeg, stackBursts, burstGapMs, spreadIds]);
+  const lightStacks = useMemo(() => {
+    const out = new Map<number, Stack<MediaItem>[]>();
+    if (!light) return out;
+    for (const dayKey of usableLightDays(light.days, summary)) {
+      const stacks = lightGrouped.get(dayKey);
+      if (stacks && dayKey !== UNREAD_DAY) out.set(dayKey, stacks);
+    }
+    return out;
+  }, [light, lightGrouped, summary]);
   /** 重ねを広げる（印を押したとき）。`ids` は重ねのファイルぜんぶ */
   const spreadStack = useCallback((ids: readonly number[]) => {
     setSpreadIds((prev) => new Set([...prev, ...ids]));
@@ -9410,6 +9439,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               ready
                               // 列に積んでいないので、去るときに降ろさない（`quick` は降ろす印。一気送りで何百回の空振りになる）
                               quick={false}
+                              // 索引の段階が古く絵が無かったら、列の道（原本を読み、生成を積む）へ回らず地の色のまま
+                              lightOnly
                               label=""
                               loader={gridLoader}
                               recent={recentThumbs}

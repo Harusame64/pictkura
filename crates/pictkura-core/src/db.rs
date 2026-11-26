@@ -3055,14 +3055,14 @@ impl Db {
     /// [`Db::search_day`] と同じ）で返す。
     ///
     /// 一覧の軽い索引（`src-tauri` の `light_index`）の元になる。モジュールの先頭の「UIへ全件を渡さない」の
-    /// 例外で、UI へ渡るのは並びと地の色に要る欄だけ——レコードのまま送る道に使わないこと
+    /// 例外で、UI へ渡るのは並びと地の色に要る欄だけ——レコードのまま送る道に使わないこと。
+    ///
+    /// **撮影日をまだ読んでいない写真（[`UNREAD_DAY_KEY`]）は入れない**: 一覧はその束を索引で並べない（読むにつれて
+    /// 写真が出ていき、枚数が合い続けない）。新しいライブラリでは大半がここに居るので、入れると索引が無駄に膨らむ
     pub fn search_all(&self, query: &SearchQuery) -> Result<Vec<MediaRecord>, DbError> {
-        let (conds, args) = self.query_filter(query)?;
-        let filter = if conds.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conds.join(" AND "))
-        };
+        let (mut conds, args) = self.query_filter(query)?;
+        conds.push(format!("day_key != {UNREAD_DAY_KEY}"));
+        let filter = format!("WHERE {}", conds.join(" AND "));
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT {MEDIA_COLUMNS} FROM media {filter}
              ORDER BY day_key DESC, {SORT_TS} DESC, id DESC"
@@ -8311,8 +8311,6 @@ mod tests {
         assert!(!has(&db, b), "行が消えたら消える");
     }
 
-    /// 日の一覧に添えるのは 48 バイトの色だけ（空の「読めなかった」印は渡さない）。埋め役の候補は
-    /// サムネイルがあって色が（印も）無い行だけ。読む間にサムネイルが付け替わった行へは書かない
     #[test]
     fn search_all_is_the_days_in_timeline_order() {
         // 一覧の軽い索引は、日ごとの取得を日の新しい順に繋いだものと**同じ並び**でなければならない
@@ -8330,8 +8328,15 @@ mod tests {
             scanned("f.mp4", 1, base + 2 * DAY + 5),
         ])
         .unwrap();
-        // 絞り込みでも同じ（★を2日にまたがって付ける）
+        // 撮影日を読んだ写真は本当の日へ移る。e だけは「読み込み中」の束に残す（索引に入れない）
         let recs = db.list_all().unwrap();
+        for r in recs
+            .iter()
+            .filter(|r| !r.path.to_string_lossy().ends_with("e.jpg"))
+        {
+            db.settle_unread_day(r.id).unwrap();
+        }
+        // 絞り込みでも同じ（★を2日にまたがって付ける）
         for r in recs.iter().filter(|r| {
             let n = r.path.to_string_lossy();
             n.ends_with("b.jpg") || n.ends_with("d.jpg")
@@ -8343,13 +8348,21 @@ mod tests {
             let all: Vec<i64> = db.search_all(&q).unwrap().iter().map(|r| r.id).collect();
             let mut by_day = Vec::new();
             for day in db.search_summary(&q).unwrap() {
+                if day.day_key == UNREAD_DAY_KEY {
+                    continue;
+                }
                 by_day.extend(db.search_day(day.day_key, &q).unwrap().iter().map(|r| r.id));
             }
             assert_eq!(all, by_day, "{filter:?}");
             assert!(!all.is_empty());
         }
         let q = crate::search::parse_query("", crate::MediaFilter::All);
-        assert_eq!(db.search_all(&q).unwrap().len(), 6);
+        let all = db.search_all(&q).unwrap();
+        assert_eq!(all.len(), 5, "e（読み込み中）は入らない");
+        assert!(all.iter().all(|r| r.day_key != UNREAD_DAY_KEY));
+        // 日が 2 つ（a・b・c と、2 日後の d・f）に分かれていること（日をまたぐ並びを試している）
+        let days: std::collections::BTreeSet<i64> = all.iter().map(|r| r.day_key).collect();
+        assert_eq!(days.len(), 2);
     }
 
     #[test]
@@ -8370,6 +8383,8 @@ mod tests {
         assert_eq!(all[&a], (recs[0].rev, vec![7; TINY_PX_LEN]));
     }
 
+    /// 日の一覧に添えるのは 48 バイトの色だけ（空の「読めなかった」印は渡さない）。埋め役の候補は
+    /// サムネイルがあって色が（印も）無い行だけ。読む間にサムネイルが付け替わった行へは書かない
     #[test]
     fn tiny_colours_are_listed_and_filled() {
         let mut db = Db::open_in_memory().unwrap();
