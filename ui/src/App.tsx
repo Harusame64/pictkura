@@ -1,4 +1,4 @@
-import { tinyGround } from "./tinyPx";
+import { TinyCanvas } from "./TinyCanvas";
 // **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
 import {
@@ -9289,9 +9289,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               style={{
                                 width: cell.w,
                                 height: cell.h,
-                                // spike #76: the photo's 4x4 colours as the ground until the picture is here
-                                ...tinyGround(cell.item.id),
-                                backgroundRepeat: "no-repeat",
                               }}
                               // 閉じるときに戻る先を引く（dev #52）。組のどれを見ていても同じタイルへ
                               data-ids={cell.files.map((f) => f.id).join(" ")}
@@ -9318,6 +9315,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 });
                               }}
                             >
+                              {/* spike #76 (canvas variant): the photo's 4x4 colours, scaled up smoothly, under the picture */}
+                              <TinyCanvas id={cell.item.id} />
                               <GridThumb
                                 // サムネイルがあればすぐ読む。まだ無い写真（原本を読む）は列で読む（`gridThumbs.ts`。同時に4枚、
                                 // 見えているものから、外れたら捨てる）

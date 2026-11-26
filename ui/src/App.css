@@ -4726,3 +4726,16 @@ html.viewer-only .app > .select-bar {
   flex: none;
   min-width: 0;
 }
+
+/* spike #76 (canvas variant) */
+.tiny-ground {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-photo);
+  pointer-events: none;
+}
+.cell-wrap > .cell {
+  position: relative;
+}

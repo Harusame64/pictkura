@@ -25,9 +25,31 @@ function ground(hex: string): TinyGround {
   return { backgroundImage: rows.join(", "), backgroundSize: "100% 25%", backgroundPosition: ROW_POS };
 }
 
+const hexes = new Map<number, string>();
+
 export function rememberTiny(id: number, hex: string | null | undefined) {
-  if (!hex || hex.length !== 96 || grounds.has(id)) return;
+  if (!hex || hex.length !== 96 || hexes.has(id)) return;
+  hexes.set(id, hex);
   grounds.set(id, ground(hex));
 }
 
 export const tinyGround = (id: number) => grounds.get(id);
+
+/** canvas variant: the raw 4x4 RGBA, for a 4x4 <canvas> the browser scales up smoothly (a real blur) */
+const pixels = new Map<number, ImageData>();
+
+export function tinyPixels(id: number): ImageData | undefined {
+  const hit = pixels.get(id);
+  if (hit) return hit;
+  const hex = hexes.get(id);
+  if (!hex) return undefined;
+  const d = new ImageData(4, 4);
+  for (let i = 0; i < 16; i++) {
+    d.data[i * 4] = parseInt(hex.slice(i * 6, i * 6 + 2), 16);
+    d.data[i * 4 + 1] = parseInt(hex.slice(i * 6 + 2, i * 6 + 4), 16);
+    d.data[i * 4 + 2] = parseInt(hex.slice(i * 6 + 4, i * 6 + 6), 16);
+    d.data[i * 4 + 3] = 255;
+  }
+  pixels.set(id, d);
+  return d;
+}
