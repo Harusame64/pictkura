@@ -212,6 +212,14 @@ const PACK_DAY_GAP = 28;
 const GRID_PADDING = 8 + 48;
 /** 日キャッシュの上限（超えたら可視範囲外の古い日から間引く） */
 const DAY_CACHE_MAX = 150;
+/** spike #76: localStorage `pictkura.spike76.preload` = 1 loads every day's list up front and never trims */
+function spike76Preload(): boolean {
+  try {
+    return localStorage.getItem("pictkura.spike76.preload") === "1";
+  } catch {
+    return false;
+  }
+}
 const DAY_CACHE_TRIM_TO = 120;
 /** 左ペインに常時見せるカメラの台数（多い人は畳んでおく） */
 const CAMERAS_COLLAPSED = 3;
@@ -1821,7 +1829,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         setDayItems((prev) => {
           const next = new Map(prev);
           for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
-          if (next.size > DAY_CACHE_MAX) {
+          if (next.size > DAY_CACHE_MAX && !spike76Preload()) {
             for (const key of next.keys()) {
               if (next.size <= DAY_CACHE_TRIM_TO) break;
               if (!got.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
@@ -3931,6 +3939,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     coveredBy: null,
   });
   const [recentThumbs] = useState(() => new RecentThumbs());
+
+  // spike #76: with `pictkura.spike76.preload` = 1, ask for every unloaded day once the skeleton is known
+  useEffect(() => {
+    if (!spike76Preload()) return;
+    const keys = summary.map((d) => d.day_key).filter((k) => !dayItems.has(k));
+    for (let i = 0; i < keys.length; i += 20) loadDays(keys.slice(i, i + 20));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary, loadDays]);
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
