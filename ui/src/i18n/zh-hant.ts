@@ -651,7 +651,7 @@ export const zhHant: Dict = {
     pick: "僅限已選（⚑）",
   },
   settingsHardwareAccelerationNote:
-    "如果全螢幕檢視相片時滑鼠指標似乎卡住，關閉此選項可能有助於解決此問題（已在配備 AMD 顯示卡的電腦上確認）。關閉後，播放影片會佔用更多 CPU。變更會在下次啟動 pictkura 時生效。",
+    "通常請保持開啟。如果螢幕顯示異常，可以嘗試關閉此選項。關閉後，播放影片會佔用更多 CPU。變更會在下次啟動 pictkura 時生效。",
   settingsImportWaitingFrom: (path: string) =>
     `來自 ${path} 的匯入正在等待，關閉設定後就會開啟。`,
   settingsImportWaiting: "有一項匯入正在等待，關閉設定後就會開啟。",

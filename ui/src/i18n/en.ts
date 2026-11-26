@@ -602,7 +602,7 @@ export const en: Dict = {
     pick: "Picks (⚑) only",
   },
   settingsHardwareAccelerationNote:
-    "If the mouse pointer looks frozen while you view photos in full screen, turning this off may fix it (seen on a PC with AMD graphics). With it off, video playback uses more CPU. The change takes effect the next time you start pictkura.",
+    "Leave this on unless something on screen looks wrong; then you can try turning it off. With it off, video playback uses more CPU. The change takes effect the next time you start pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `An import from ${path} is waiting. It opens when you close Settings.`,
   settingsImportWaiting: "An import is waiting. It opens when you close Settings.",

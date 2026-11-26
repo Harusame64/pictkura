@@ -648,7 +648,7 @@ export const zh: Dict = {
     pick: "仅已选（⚑）",
   },
   settingsHardwareAccelerationNote:
-    "如果全屏查看照片时鼠标指针似乎卡住，关闭此选项可能有助于解决该问题（已在配备 AMD 显卡的电脑上确认）。关闭后，播放视频会占用更多 CPU。更改将在下次启动 pictkura 时生效。",
+    "通常请保持开启。如果屏幕显示异常，可以尝试关闭此选项。关闭后，播放视频会占用更多 CPU。更改将在下次启动 pictkura 时生效。",
   settingsImportWaitingFrom: (path: string) =>
     `来自 ${path} 的导入正在等待，关闭设置后就会打开。`,
   settingsImportWaiting: "有一项导入正在等待，关闭设置后就会打开。",
