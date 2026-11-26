@@ -201,6 +201,8 @@ import {
   boxOf,
   containBox,
   fitScaleFor,
+  VIEWER_PAD,
+  VIEWER_PAD_FULLSCREEN,
   viewerBox,
   type Box,
 } from "./viewerZoomBox";
@@ -6058,9 +6060,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         ? [servedNatural.w, servedNatural.h]
         : servedSize(viewerItem);
     if (w <= 0 || h <= 0) return 1;
-    // CSS の `max-width: calc(100vw - 120px - var(--info-reserve))` と同じ枠
-    return fitScaleFor(w, h, infoReserve, windowSize.w, windowSize.h);
-  }, [viewerItem, servedNatural, windowSize, infoReserve]);
+    // CSS の `--viewer-fit-w` / `--viewer-fit-h` と同じ枠。全画面では空きを取らない（`.viewer.fullscreen`）
+    return fitScaleFor(
+      w,
+      h,
+      infoReserve,
+      windowSize.w,
+      windowSize.h,
+      anyFullscreen ? VIEWER_PAD_FULLSCREEN : VIEWER_PAD,
+    );
+  }, [viewerItem, servedNatural, windowSize, infoReserve, anyFullscreen]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
   const isActualSize = Math.abs(displayScale - 1) < 0.005;
@@ -9729,6 +9738,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             "viewer" +
             (viewerIdle ? " idle" : "") +
             (pointerIdle ? " pointer-idle" : "") +
+            // 全画面では写真のまわりの空きを取らず、画面いっぱいに収める（2026-11-27 利用者「出来るだけひろくみたい」）
+            (anyFullscreen ? " fullscreen" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
           // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が

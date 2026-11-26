@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { containBox, fitScaleFor, viewerBox } from "../src/viewerZoomBox.ts";
+import { containBox, fitScaleFor, VIEWER_PAD_FULLSCREEN, viewerBox } from "../src/viewerZoomBox.ts";
 
 test("a large photo fits inside the margins, centred", () => {
   // 幅の上限 1920-120=1800、高さの上限 1080-80=1000。横長 6000x4000 は高さで決まる（1500x1000）
@@ -63,4 +63,17 @@ test("containBox finds the drawn picture inside a box of the wrong shape", () =>
 test("fitScaleFor never enlarges", () => {
   assert.equal(fitScaleFor(400, 300, 0, 1920, 1080), 1);
   assert.equal(fitScaleFor(6000, 4000, 0, 1920, 1080), 0.25);
+});
+
+test("fitScaleFor in full screen uses the whole screen", () => {
+  // 6000x4000 on 1920x1080: the margins make height the limit (1000/4000); without them it is 1080/4000
+  assert.equal(fitScaleFor(6000, 4000, 0, 1920, 1080), 0.25);
+  assert.equal(fitScaleFor(6000, 4000, 0, 1920, 1080, VIEWER_PAD_FULLSCREEN), 0.27);
+  // a wide panorama is limited by width: 1800/6000 with margins, 1920/6000 without
+  assert.equal(fitScaleFor(6000, 1000, 0, 1920, 1080), 0.3);
+  assert.equal(fitScaleFor(6000, 1000, 0, 1920, 1080, VIEWER_PAD_FULLSCREEN), 0.32);
+  // the info panel's share is still taken in full screen
+  assert.equal(fitScaleFor(6000, 1000, 120, 1920, 1080, VIEWER_PAD_FULLSCREEN), 0.3);
+  // still never enlarges
+  assert.equal(fitScaleFor(400, 300, 0, 1920, 1080, VIEWER_PAD_FULLSCREEN), 1);
 });
