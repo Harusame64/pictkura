@@ -19,7 +19,7 @@ use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsZoomed, SetWindowLongPtrW,
+    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed, SetWindowLongPtrW,
     SetWindowPlacement, SetWindowPos, ShowWindow, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_RESTORE, WINDOWPLACEMENT, WS_CAPTION, WS_MAXIMIZE,
     WS_THICKFRAME,
@@ -27,8 +27,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// 入る前の窓の型と置き場所。`Some` の間が全画面
 struct Saved {
-    style: isize,
+    /// 外した枠の印（`WS_CAPTION`・`WS_THICKFRAME` のうち、入る前に付いていたもの）。抜けるときはこれだけを戻す——型を
+    /// 丸ごと書き戻すと、間に OS が変えた印（持ち主の確認画面が開いている間の `WS_DISABLED` など）まで巻き戻す（/code-review）
+    frame: isize,
     placement: WINDOWPLACEMENT,
+    /// 最大化していなかった窓の矩形。画面の端に寄せた（スナップした）窓は、置き場所（`rcNormalPosition`）が寄せる前の
+    /// 大きさなので、置き場所だけでは寄せた形へ戻らない（/code-review）
+    rect: Option<RECT>,
 }
 
 // `WINDOWPLACEMENT` は数と矩形だけの構造体で、スレッドをまたいで持ってよい
@@ -79,7 +84,9 @@ fn fit(hwnd: HWND, r: RECT) -> windows::core::Result<()> {
 /// 前の画面の大きさのまま残った。tao の全画面なら tao が合わせ直すが、ここは tao から見れば普通の窓。PR #368 の codex）。
 /// 合っていれば何もしない（合わせた後の知らせで回り続けない）
 pub fn refit(hwnd: HWND) {
-    if !is_on() {
+    // 最小化した窓は触らない（画面の外に置かれた矩形と画面の矩形が違うので、合わせ直すと最小化した窓を画面へ引き出す。
+    // /code-review）。戻したときの知らせで合わせ直す
+    if !is_on() || unsafe { IsIconic(hwnd) }.as_bool() {
         return;
     }
     let Ok(want) = monitor_rect(hwnd) else {
@@ -109,11 +116,14 @@ pub fn enter(hwnd: HWND) -> windows::core::Result<()> {
             ..Default::default()
         };
         GetWindowPlacement(hwnd, &mut placement)?;
+        let zoomed = IsZoomed(hwnd).as_bool();
+        let mut before = RECT::default();
+        let rect = (!zoomed && GetWindowRect(hwnd, &mut before).is_ok()).then_some(before);
         // 画面は、いま見えている窓（最大化ならその画面）で決める
         let r = monitor_rect(hwnd)?;
         // 最大化のままだと、広げた後も最大化の印が残り、戻すときの置き場所が狂う。win の実測（③b・③c）と同じく
         // 先に元の大きさへ戻してから枠を外す（この間は全画面の印が無いので、`refit` は何もしない）
-        if IsZoomed(hwnd).as_bool() {
+        if zoomed {
             let _ = ShowWindow(hwnd, SW_RESTORE);
         }
         // 枠を外すのは**戻した後の型**から（入る前の `style` は最大化の印を持つ。それを書き戻すと、全画面の間も
@@ -122,7 +132,11 @@ pub fn enter(hwnd: HWND) -> windows::core::Result<()> {
         let now = GetWindowLongPtrW(hwnd, GWL_STYLE);
         SetWindowLongPtrW(hwnd, GWL_STYLE, now & !frame);
         // 印を立ててから広げる（広げた知らせで `refit` が走っても、合っているので何もしない）
-        *saved() = Some(Saved { style, placement });
+        *saved() = Some(Saved {
+            frame: style & (WS_CAPTION.0 | WS_THICKFRAME.0) as isize,
+            placement,
+            rect,
+        });
         fit(hwnd, r)?;
     }
     Ok(())
@@ -136,9 +150,11 @@ pub fn exit(hwnd: HWND) -> windows::core::Result<()> {
         return Ok(());
     };
     unsafe {
-        // 最大化の印は置き場所（`SetWindowPlacement`）が付け直す。型に残したまま戻すと、元の大きさの窓が最大化を名乗る
-        SetWindowLongPtrW(hwnd, GWL_STYLE, s.style & !(WS_MAXIMIZE.0 as isize));
-        SetWindowPos(
+        // 外した枠の印だけを戻す。最大化の印は置き場所（`SetWindowPlacement`）が付け直す
+        let now = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        SetWindowLongPtrW(hwnd, GWL_STYLE, now | s.frame);
+        // 枠の描き直しが転んでも、置き場所へは必ず戻す（ここで抜けると、覚えた置き場所はもう捨てたので戻せない。/code-review）
+        let refreshed = SetWindowPos(
             hwnd,
             None,
             0,
@@ -146,8 +162,13 @@ pub fn exit(hwnd: HWND) -> windows::core::Result<()> {
             0,
             0,
             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-        )?;
+        );
         SetWindowPlacement(hwnd, &s.placement)?;
+        // 端に寄せていた窓は、寄せた形へ（置き場所は寄せる前の大きさを持つ）
+        if let Some(r) = s.rect {
+            fit(hwnd, r)?;
+        }
+        refreshed?;
     }
     Ok(())
 }
