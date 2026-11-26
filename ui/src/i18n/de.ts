@@ -671,7 +671,7 @@ export const de: Dict = {
     pick: "Nur Ausgewählte (⚑)",
   },
   settingsHardwareAccelerationNote:
-    "Wenn der Mauszeiger beim Anzeigen von Fotos im Vollbildmodus eingefroren wirkt, kann das Ausschalten helfen (beobachtet auf einem PC mit AMD-Grafik). Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",
+    "Lass diese Option normalerweise eingeschaltet. Wenn die Anzeige fehlerhaft aussieht, kannst du sie zum Ausprobieren ausschalten. Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",
   settingsImportWaitingFrom: (path: string) =>
     `Ein Import von ${path} wartet. Er öffnet sich, wenn Sie die Einstellungen schließen.`,
   settingsImportWaiting: "Ein Import wartet. Er öffnet sich, wenn Sie die Einstellungen schließen.",

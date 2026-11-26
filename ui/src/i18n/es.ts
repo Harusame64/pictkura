@@ -674,7 +674,7 @@ export const es: Dict = {
     pick: "Solo seleccionadas (⚑)",
   },
   settingsHardwareAccelerationNote:
-    "Si el puntero del ratón parece congelado mientras ves fotos en pantalla completa, desactivar esta opción puede solucionarlo (se ha observado en un PC con gráficos AMD). Si está desactivada, la reproducción de vídeos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
+    "Normalmente conviene dejar esta opción activada. Si algo en la pantalla se ve mal, puedes probar a desactivarla. Si está desactivada, la reproducción de vídeos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Hay una importación desde ${path} esperando. Se abrirá al cerrar la configuración.`,
   settingsImportWaiting: "Hay una importación esperando. Se abrirá al cerrar la configuración.",

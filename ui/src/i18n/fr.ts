@@ -667,7 +667,7 @@ export const fr: Dict = {
     pick: "Sélection (⚑) uniquement",
   },
   settingsHardwareAccelerationNote:
-    "Si le pointeur de la souris semble figé pendant que vous regardez des photos en plein écran, désactiver cette option peut corriger le problème (constaté sur un PC équipé d’une carte graphique AMD). Lorsque cette option est désactivée, la lecture des vidéos sollicite davantage le processeur. Le changement prend effet au prochain démarrage de pictkura.",
+    "Laissez cette option activée en temps normal. Si l’affichage semble anormal, vous pouvez essayer de la désactiver. Lorsque cette option est désactivée, la lecture des vidéos sollicite davantage le processeur. Le changement prend effet au prochain démarrage de pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Une importation depuis ${path} est en attente. Elle s’ouvrira à la fermeture des paramètres.`,
   settingsImportWaiting: "Une importation est en attente. Elle s’ouvrira à la fermeture des paramètres.",

@@ -106,7 +106,7 @@ export const es419: Dict = {
   settingsGoogleVideo: "Poner también los videos",
   // Ratón → Mouse・vídeos → videos
   settingsHardwareAccelerationNote:
-    "Si el puntero del mouse parece congelado mientras ves fotos en pantalla completa, desactivar esta opción puede solucionarlo (se ha observado en una PC con gráficos AMD). Si está desactivada, la reproducción de videos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
+    "Normalmente conviene dejar esta opción activada. Si algo en la pantalla se ve mal, puedes probar a desactivarla. Si está desactivada, la reproducción de videos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
   printSkipped: (n: number) =>
     `${num(n)} ${one(n, "foto no se pudo", "fotos no se pudieron")} imprimir (videos, por ejemplo) y ${one(n, "se omitió", "se omitieron")}.`,
   // Añadir → Agregar

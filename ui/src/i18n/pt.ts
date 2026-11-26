@@ -639,7 +639,7 @@ export const pt: Dict = {
     pick: "Somente selecionadas (⚑)",
   },
   settingsHardwareAccelerationNote:
-    "Se o ponteiro do mouse parecer travado ao visualizar fotos em tela cheia, desativar esta opção pode resolver o problema (observado em um PC com placa de vídeo AMD). Com essa opção desativada, a reprodução de vídeos usa mais CPU. A mudança entra em vigor na próxima vez que você iniciar o pictkura.",
+    "Normalmente, deixe esta opção ativada. Se algo na tela parecer errado, você pode tentar desativá-la. Com essa opção desativada, a reprodução de vídeos usa mais CPU. A mudança entra em vigor na próxima vez que você iniciar o pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Uma importação de ${path} está esperando. Ela abre quando você fechar as Configurações.`,
   settingsImportWaiting: "Uma importação está esperando. Ela abre quando você fechar as Configurações.",

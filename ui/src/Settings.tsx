@@ -958,8 +958,9 @@ export default function Settings({
             </section>
           )}
 
-          {/* GPU の合成（Windows だけ。`webview_args.rs`）。AMD のハードウェアカーソルで、全画面のビューアの
-              カーソルの絵が止まる台の逃げ道（2026-11-15 win2 の実測）。窓を作るときにしか渡せないので次の起動から効く */}
+          {/* GPU の合成（Windows だけ。`webview_args.rs`）。もとは AMD の台で全画面のカーソルの絵が止まる件の
+              逃げ道（2026-11-15 win2）だったが、#368 で全画面そのものを作り替えて直ったので、いまは表示の不具合の
+              一般の逃げ道。注記もそう書く。窓を作るときにしか渡せないので次の起動から効く */}
           {platform === "windows" && (
             <section className="settings-section">
               <h3>{t.settingsGraphics}</h3>

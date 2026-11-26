@@ -647,7 +647,7 @@ export const it: Dict = {
     pick: "Solo selezionate (⚑)",
   },
   settingsHardwareAccelerationNote:
-    "Se il puntatore del mouse sembra bloccato mentre guardi le foto a schermo intero, disattivare questa opzione può risolvere il problema (riscontrato su un PC con grafica AMD). Se è disattivata, la riproduzione dei video usa più CPU. La modifica ha effetto dal prossimo avvio di pictkura.",
+    "Di norma lascia attiva questa opzione. Se qualcosa sullo schermo non si vede bene, puoi provare a disattivarla. Se è disattivata, la riproduzione dei video usa più CPU. La modifica ha effetto dal prossimo avvio di pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Un'importazione da ${path} è in attesa. Si aprirà quando chiudi le impostazioni.`,
   settingsImportWaiting: "Un'importazione è in attesa. Si aprirà quando chiudi le impostazioni.",
