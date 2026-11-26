@@ -116,8 +116,11 @@ pub fn enter(hwnd: HWND) -> windows::core::Result<()> {
         if IsZoomed(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
         }
-        let frame = (WS_CAPTION.0 | WS_THICKFRAME.0) as isize;
-        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !frame);
+        // 枠を外すのは**戻した後の型**から（入る前の `style` は最大化の印を持つ。それを書き戻すと、全画面の間も
+        // 最大化を名乗った——win の実測で `0x150B0000`。止まらなかった形は印の無い `0x140B0000`）
+        let frame = (WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MAXIMIZE.0) as isize;
+        let now = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        SetWindowLongPtrW(hwnd, GWL_STYLE, now & !frame);
         // 印を立ててから広げる（広げた知らせで `refit` が走っても、合っているので何もしない）
         *saved() = Some(Saved { style, placement });
         fit(hwnd, r)?;
