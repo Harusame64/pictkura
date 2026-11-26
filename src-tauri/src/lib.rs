@@ -868,6 +868,10 @@ struct MediaItemDto {
     /// `taken_at_ms` が**本物の撮影日時**か（偽なら mtime で埋めた値）。一覧は、撮影日時が
     /// 読めた同士でしか RAW+JPEG を重ねない——mtime が偶然同じ別の写真を組にしない（PRのcodex）
     taken_at_known: bool,
+    /// 写真の 4x4 の色（RGB を16進で96文字、上の行から）。一覧は絵が届くまでタイルの地に敷く（pictkura-dev #76）。
+    /// 入れるのは日の一覧（[`list_days`]）と、サムネイルが出来た知らせ（[`item_with_tiny`] を通す `media-updated`）。
+    /// ほかの道は null で、UI は id と版で覚えた色を使い続ける
+    tiny: Option<String>,
     /// `taken_at_ms` が秒未満まで分かっているか（dev #32。連写は間隔で切るので、
     /// 秒までしか分からない写真は束ねない）
     taken_subsec: bool,
@@ -906,6 +910,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             is_raw: pictkura_core::raw::is_raw_path(&r.path),
             // 更新日時で埋めた値は「分かっていない」（F2、dev #44）。組・連写はこれで決まる
             taken_at_known: r.taken_at_is_real(),
+            tiny: None,
             taken_subsec: r.taken_subsec == Some(true),
             body_key: pictkura_core::burst::body_key(r.camera_id, r.body_serial.as_deref()),
             is_jpeg: pictkura_core::jpeg::is_jpeg_path(&r.path),
@@ -1496,6 +1501,27 @@ struct DayItemsDto {
     error: Option<String>,
 }
 
+/// バイト列を小文字の16進に（4x4 の色を一覧へ渡す形）
+fn hex_of(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+/// 1枚の行の DTO に、その写真の 4x4 の色を添える（同じ版の色だけ）。サムネイルが出来た知らせ（`media-updated`）
+/// に使う——日の一覧は読み直されないので、知らせが色を運ばないと、出来た写真の地が画面に出なかった（win2、PR #366）
+fn item_with_tiny(db: &pictkura_core::Db, record: pictkura_core::MediaRecord) -> MediaItemDto {
+    let tiny = db.tiny_of(record.id).ok().flatten();
+    let mut dto = MediaItemDto::from(record);
+    dto.tiny = tiny
+        .filter(|(rev, _)| *rev == dto.rev)
+        .map(|(_, px)| hex_of(&px));
+    dto
+}
+
 /// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
 ///
 /// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
@@ -1519,11 +1545,31 @@ async fn list_days(
             .iter()
             .map(
                 |&day_key| match state.read_pool.with(|db| db.search_day(day_key, &query)) {
-                    Ok(v) => DayItemsDto {
-                        day_key,
-                        items: Some(v.into_iter().map(Into::into).collect()),
-                        error: None,
-                    },
+                    Ok(v) => {
+                        // 4x4 の色を添える。読めなくても日の一覧は返す（色は飾り）
+                        let tiny = state
+                            .read_pool
+                            .with(|db| db.tiny_for_days(&[day_key]))
+                            .unwrap_or_default();
+                        DayItemsDto {
+                            day_key,
+                            items: Some(
+                                v.into_iter()
+                                    .map(|r| {
+                                        let mut d = MediaItemDto::from(r);
+                                        // 同じ版の色だけ（2つの読みの間に回された写真の、新しい向きの色を
+                                        // 古い版の項目に付けない。PR #366 の /code-review）
+                                        d.tiny = tiny
+                                            .get(&d.id)
+                                            .filter(|(rev, _)| *rev == d.rev)
+                                            .map(|(_, px)| hex_of(px));
+                                        d
+                                    })
+                                    .collect(),
+                            ),
+                            error: None,
+                        }
+                    }
                     Err(e) => DayItemsDto {
                         day_key,
                         items: None,
@@ -7306,6 +7352,121 @@ fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
     }
 }
 
+/// 埋め役が埋めた色の知らせ（`tiny-filled`）の1件
+#[derive(serde::Serialize, Clone)]
+struct TinyFilledDto {
+    id: i64,
+    rev: i64,
+    /// 16進 96 文字（[`MediaItemDto::tiny`] と同じ形）
+    tiny: String,
+}
+
+/// 4x4 の色の埋め役（pictkura-dev #76）。新しく作るサムネイルは作るときに色も書く（`thumbs::publish_thumb`）。
+/// これはその前からあるサムネイル（前の版・版が進んでも残ったもの）のぶん。
+///
+/// 読むのはアプリのサムネイル置き場のファイルだけ——写真の原本にもクラウドにも触らない。起動の仕事
+/// （同期・走査）を先に通すため少し待ってから始め、一覧の並びで続きから 64 枚ずつ、間を空けて読む。
+/// 1周読み終えたら 10 分後に見直す。
+/// 読めなかったサムネイルには空の印を置き、同じファイルを読み続けない
+fn spawn_tiny_filler(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        pictkura_core::panics::catching("tiny filler", move || {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            let state = app.state::<AppState>();
+            // 前の起動で読めなかったサムネイルを、この起動で1回だけ読み直す
+            let _ = lock_ok(&state.db).forget_unreadable_tiny();
+            let mut filled = 0usize;
+            let mut started: Option<std::time::Instant> = None;
+            // 書けなかった周が続いた数（待ちを延ばし、記録は最初の1回だけ）
+            let mut write_failures = 0u32;
+            // 読み進めた位置（一覧の並びで続きから読む。毎回先頭から探さない。PR #366 の codex）
+            let mut after: Option<pictkura_core::TinyCursor> = None;
+            loop {
+                let rows = state
+                    .read_pool
+                    .with(|db| db.tiny_to_fill(after, 64))
+                    .unwrap_or_default();
+                if rows.is_empty() {
+                    // 1周読み終えた。新しいサムネイルは作るときに色を書くので、後から埋める行はまれ——
+                    // 次の見直しまで長く空ける
+                    after = None;
+                    if let Some(t) = started.take() {
+                        applog::note(&format!(
+                            "tiny colours filled for {filled} thumbnails in {} s",
+                            t.elapsed().as_secs()
+                        ));
+                        filled = 0;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(600));
+                    continue;
+                }
+                started.get_or_insert_with(std::time::Instant::now);
+                let next_after = rows.last().map(|r| r.2);
+                let mut wrote = 0usize;
+                // 埋めた写真（UI へまとめて知らせる）
+                let mut done_ids: Vec<i64> = Vec::new();
+                let mut failed: Option<String> = None;
+                for (id, path, _) in rows {
+                    let px = pictkura_core::thumbs::tiny_px_of_file(&path).unwrap_or_default();
+                    match lock_ok(&state.db).fill_tiny(id, &path, &px) {
+                        Ok(true) => {
+                            wrote += 1;
+                            done_ids.push(id);
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            // 書けない（DB が長く握られている等）。同じ 64 枚を読み続けないよう、この周を
+                            // 打ち切って長く待つ（PR #366 の /code-review）
+                            failed = Some(e.to_string());
+                            break;
+                        }
+                    }
+                }
+                filled += wrote;
+                // 書けなかった周は同じ位置から読み直す。ほかは続きへ（読む間に付け替わった行は次の周で拾う）
+                if failed.is_none() {
+                    after = next_after;
+                }
+                // 埋めた色を UI へ知らせる。日の一覧を先に読んで覚えた日は読み直されないので、知らせないと
+                // 戻っても灰色のままだった（PR #366 の codex）。版を添え、UI は同じ版の色だけ使う
+                if !done_ids.is_empty() {
+                    let items: Vec<TinyFilledDto> = state.read_pool.with(|db| {
+                        done_ids
+                            .iter()
+                            .filter_map(|&id| {
+                                let (rev, px) = db.tiny_of(id).ok().flatten()?;
+                                Some(TinyFilledDto {
+                                    id,
+                                    rev,
+                                    tiny: hex_of(&px),
+                                })
+                            })
+                            .collect()
+                    });
+                    if !items.is_empty() {
+                        let _ = app.emit("tiny-filled", items);
+                    }
+                }
+                let pause = if let Some(e) = failed {
+                    // 書けないまま（読み取り専用になった等）: 1 分から倍々に、30 分で頭打ち。記録は最初の1回
+                    if write_failures == 0 {
+                        applog::note(&format!("tiny colours: cannot write, waiting: {e}"));
+                    }
+                    write_failures = write_failures.saturating_add(1);
+                    (60_000u64 << write_failures.min(5).saturating_sub(1)).min(30 * 60_000)
+                } else if wrote == 0 {
+                    // 読む間に全部付け替わった
+                    5_000
+                } else {
+                    write_failures = 0;
+                    50
+                };
+                std::thread::sleep(std::time::Duration::from_millis(pause));
+            }
+        });
+    });
+}
+
 /// [`AutoThumbs`] の配り手。2 秒ごとに起き、作る列が細っていたら次の候補を新しい順に積む
 fn spawn_auto_thumbs(handle: tauri::AppHandle) {
     std::thread::spawn(move || loop {
@@ -8320,9 +8481,15 @@ pub fn run() {
                 config.performance.worker_threads,
                 move |id, camera| {
                     let state = thumb_handle.state::<AppState>();
-                    let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
-                    if let Some(record) = record {
-                        let _ = thumb_handle.emit("media-updated", MediaItemDto::from(record));
+                    // 出来た写真の色も添える（日の一覧は読み直されない）
+                    let item = state.read_pool.with(|db| {
+                        db.get_by_id(id)
+                            .ok()
+                            .flatten()
+                            .map(|r| item_with_tiny(db, r))
+                    });
+                    if let Some(item) = item {
+                        let _ = thumb_handle.emit("media-updated", item);
                     }
                     // `media-updated` の DTO にカメラの欄は無いので、カメラは別に知らせる
                     // （dev #28。`Unchanged` を捨てるのも含め、何を数え直すかは
@@ -8822,6 +8989,9 @@ pub fn run() {
             // 設定「サムネイルを自動生成」の配り手
             spawn_auto_thumbs(app.handle().clone());
 
+            // 前の版で作ったサムネイルに 4x4 の色を埋める（pictkura-dev #76）
+            spawn_tiny_filler(app.handle().clone());
+
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
             rebuild_watcher(app.handle());
 
@@ -8925,7 +9095,8 @@ pub fn run() {
                     pictkura_core::panics::catching(&format!("media request {uri}"), || {
                         // 古い日で頼んできたタイルへ、いまの行を配り直す（一覧が日を動かす）
                         let resend = |record: pictkura_core::MediaRecord| {
-                            let _ = app.emit("media-updated", MediaItemDto::from(record));
+                            let item = state.read_pool.with(|db| item_with_tiny(db, record));
+                            let _ = app.emit("media-updated", item);
                         };
                         handle_media_request(&state, &uri, range.as_deref(), &resend)
                     })

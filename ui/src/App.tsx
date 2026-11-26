@@ -25,6 +25,8 @@ import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
 import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
 import { GridThumb } from "./GridThumb";
+import { TinyCanvas } from "./TinyCanvas";
+import { rememberTiny, tinyPixels } from "./tinyPx";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
@@ -2411,6 +2413,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       patchTimer.current = window.setTimeout(flush, ms);
     };
     listen<MediaItem>("media-updated", (ev) => {
+      // サムネイルが出来た知らせは、その写真の 4x4 の色も運ぶ（日の一覧は読み直されない。`tinyPx.ts`）
+      rememberTiny(ev.payload.id, ev.payload.rev, ev.payload.tiny);
       patchBuffer.current.push(ev.payload);
       // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
       // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）
@@ -2439,6 +2443,25 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       flush();
     };
   }, [applyPatches, gridWaiters]);
+
+  // 埋め役が前の版のサムネイルに 4x4 の色を埋めた（`tinyPx.ts`）。先に読んで覚えた日は読み直されないので、
+  // 届いた色を覚えて一覧を描き直す（PR #366 の codex）。知らせは 64 枚ずつ、多くても 1 秒に 1〜2 回
+  const [, setTinyGen] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ id: number; rev: number; tiny: string }[]>("tiny-filled", (ev) => {
+      for (const it of ev.payload) rememberTiny(it.id, it.rev, it.tiny);
+      setTinyGen((g) => g + 1);
+    }).then((f) => {
+      if (cancelled) f();
+      else unlisten = f;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   const onSync = useCallback(async () => {
     setBusy(true);
@@ -9311,6 +9334,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 });
                               }}
                             >
+                              {/* 絵が届くまでの地: その写真の 4x4 の色をぼかして敷く（pictkura-dev #76） */}
+                              <TinyCanvas px={tinyPixels(cell.item.id, cell.item.rev)} />
                               <GridThumb
                                 // サムネイルがあればすぐ読む。まだ無い写真（原本を読む）は列で読む（`gridThumbs.ts`。同時に4枚、
                                 // 見えているものから、外れたら捨てる）

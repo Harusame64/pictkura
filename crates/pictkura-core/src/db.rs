@@ -33,6 +33,28 @@ pub enum DbError {
     Sqlite(#[from] rusqlite::Error),
 }
 
+/// 写真ごとの 4x4 の色の大きさ（RGB、上の行から。pictkura-dev #76）
+pub const TINY_PX_LEN: usize = 48;
+
+/// [`Db::tiny_to_fill`] の問い合わせ（試験が同じ文字列の実行計画を見る）
+fn tiny_to_fill_sql() -> String {
+    format!(
+        "SELECT m.id, m.thumb_path, m.day_key, {SORT_TS} FROM media m INDEXED BY idx_media_day_sort
+         WHERE (m.day_key, {SORT_TS}, m.id) < (?1, ?2, ?3)
+           AND m.thumb_path IS NOT NULL AND m.thumb_state IN (1, 2)
+           AND NOT EXISTS (SELECT 1 FROM tiny_px t WHERE t.id = m.id)
+         ORDER BY m.day_key DESC, {SORT_TS} DESC, m.id DESC LIMIT ?4"
+    )
+}
+
+/// 4x4 の色の埋め役が読み進めた位置（[`Db::tiny_to_fill`]。タイムラインの並びの鍵）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TinyCursor {
+    pub day_key: i64,
+    pub sort_ts: i64,
+    pub id: i64,
+}
+
 /// `media` テーブルの1行。
 #[derive(Debug, Clone, PartialEq)]
 pub struct MediaRecord {
@@ -917,6 +939,33 @@ impl Db {
                 AND (new.thumb_path IS NULL OR new.thumb_path <> old.thumb_path) BEGIN
                 INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
                 VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+            END;
+            "#,
+        )?;
+        // 写真ごとの 4x4 の色（一覧が、絵の届く前のタイルに敷く。pictkura-dev #76）。サムネイルを付け替えるのと
+        // 同じ書き込みで入れる（`thumbs::publish_thumb`）。引き金で消すのは、中身の版（`rev`）が進んだ・行が消えた・
+        // サムネイルが**別の**ファイルに替わったとき。**サムネイルが外れただけ（置き場の上限で消した）では消さない**
+        // ——写真は同じなので色は正しいまま。速く通り過ぎる古い写真ほど上限で消され、そこで地まで失った
+        // （PR #366 の /code-review）。消えた行は、残ったサムネイルから掃除役が埋め直す（[`Db::tiny_to_fill`]）。
+        // 空の `px` は「読めなかった」の印で、埋め直しの対象から外すためだけに置く（一覧には渡さない）
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS tiny_px (
+                id INTEGER PRIMARY KEY,
+                px BLOB NOT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS tiny_px_ad AFTER DELETE ON media BEGIN
+                DELETE FROM tiny_px WHERE id = old.id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tiny_px_au_thumb2 AFTER UPDATE OF thumb_path ON media
+            WHEN new.thumb_path IS NOT NULL AND old.thumb_path IS NOT NULL
+                AND new.thumb_path <> old.thumb_path BEGIN
+                DELETE FROM tiny_px WHERE id = old.id;
+            END;
+            DROP TRIGGER IF EXISTS tiny_px_au_thumb;
+            CREATE TRIGGER IF NOT EXISTS tiny_px_au_rev AFTER UPDATE OF rev ON media
+            WHEN new.rev IS NOT old.rev BEGIN
+                DELETE FROM tiny_px WHERE id = old.id;
             END;
             "#,
         )?;
@@ -2038,6 +2087,119 @@ impl Db {
         Ok(())
     }
 
+    /// 写真の 4x4 の色（[`TINY_PX_LEN`] バイト。空は「読めなかった」の印）を置く。サムネイルを付け替えた
+    /// 後に呼ぶ——付け替え（`thumb_path` の更新）は引き金で前の色を消すので、順番が逆だと消える
+    pub fn set_tiny(&self, id: i64, px: &[u8]) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO tiny_px (id, px) VALUES (?1, ?2)",
+            params![id, px],
+        )?;
+        Ok(())
+    }
+
+    /// 日ごとの写真の 4x4 の色（id → (そのときの版, [`TINY_PX_LEN`] バイト)）。「読めなかった」の印は返さない。
+    /// 版を添えるのは、日の一覧（別の読み）と突き合わせるため——2つの読みの間に回されて色だけ新しくなった写真を、
+    /// 古い版の色として渡さない
+    pub fn tiny_for_days(
+        &self,
+        day_keys: &[i64],
+    ) -> Result<std::collections::HashMap<i64, (i64, Vec<u8>)>, DbError> {
+        let mut out = std::collections::HashMap::new();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT t.id, m.rev, t.px FROM media m JOIN tiny_px t ON t.id = m.id
+             WHERE m.day_key = ?1 AND length(t.px) = ?2",
+        )?;
+        for &day in day_keys {
+            let rows = stmt.query_map(params![day, TINY_PX_LEN as i64], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Vec<u8>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, rev, px) = row?;
+                out.insert(id, (rev, px));
+            }
+        }
+        Ok(out)
+    }
+
+    /// 1枚の写真の 4x4 の色と、そのときの版（[`Db::tiny_for_days`] の1枚版。サムネイルが出来た知らせに添える）。
+    /// 色が無い・「読めなかった」の印なら `None`
+    pub fn tiny_of(&self, id: i64) -> Result<Option<(i64, Vec<u8>)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.rev, t.px FROM media m JOIN tiny_px t ON t.id = m.id
+             WHERE m.id = ?1 AND length(t.px) = ?2",
+        )?;
+        let mut rows = stmt.query(params![id, TINY_PX_LEN as i64])?;
+        Ok(match rows.next()? {
+            Some(r) => Some((r.get(0)?, r.get(1)?)),
+            None => None,
+        })
+    }
+
+    /// 「読めなかった」の印を外す（掃除役が起動ごとに1回。一時的に読めなかった——ウイルス対策が掴んでいた、
+    /// 置き場のドライブがまだ無かった——サムネイルを、次の起動で1回だけ読み直す）
+    pub fn forget_unreadable_tiny(&self) -> Result<usize, DbError> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM tiny_px WHERE length(px) = 0", [])?)
+    }
+
+    /// サムネイルはあるのに 4x4 の色がまだ無い行（前の版で作ったサムネイル、版が進んだ後もサムネイルが
+    /// 残った行）を、一覧と同じ並び（新しい撮影日から）で `after` の**次から** `limit` 件。戻り値の最後の行の
+    /// [`TinyCursor`] を次の `after` に渡すと続きが読める。
+    ///
+    /// **毎回先頭から探さない**（PR #366 の codex）。先頭から並べ直して探すと、1回ごとに表全体をなめて
+    /// 並べ直すので、埋め終えるまでの仕事が枚数の2乗で増え（20万行で 10 回 0.9 秒）、一覧と絵の読み取りと
+    /// 共有する読み口を塞いだ。タイムラインの索引（`idx_media_day_sort`）の順に続きから読むので、1周で
+    /// ライブラリを1回なめるだけ
+    pub fn tiny_to_fill(
+        &self,
+        after: Option<TinyCursor>,
+        limit: usize,
+    ) -> Result<Vec<(i64, PathBuf, TinyCursor)>, DbError> {
+        let (d, t, i) = after.map_or((i64::MAX, i64::MAX, i64::MAX), |c| {
+            (c.day_key, c.sort_ts, c.id)
+        });
+        let mut stmt = self.conn.prepare_cached(&tiny_to_fill_sql())?;
+        let rows = stmt.query_map(params![d, t, i, limit as i64], |r| {
+            let id: i64 = r.get(0)?;
+            Ok((
+                id,
+                PathBuf::from(r.get::<_, String>(1)?),
+                TinyCursor {
+                    day_key: r.get(2)?,
+                    sort_ts: r.get(3)?,
+                    id,
+                },
+            ))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 埋めた色を置く。置いたかを返す。
+    ///
+    /// - **読んだときと同じサムネイルのパスの行だけ**（読む間に付け替わった行へ書かない）
+    /// - **まだ色が無い行だけ**（`INSERT OR IGNORE`）。サムネイルの名前は写真ごとに決まっていて、即席も本番も
+    ///   回した後も同じパスになりうる。パスが同じでも、読む間にサムネイルを作り直した書き込み
+    ///   （[`crate::thumbs`] の `publish_thumb`、色も一緒に置く）が先に入っていれば、そちらが正しい
+    ///   （PR #366 の /code-review）
+    pub fn fill_tiny(&mut self, id: i64, thumb_path: &Path, px: &[u8]) -> Result<bool, DbError> {
+        let tx = self.write_tx()?;
+        let same = tx
+            .prepare_cached("SELECT 1 FROM media WHERE id = ?1 AND thumb_path = ?2")?
+            .exists(params![id, thumb_path.to_string_lossy()])?;
+        let wrote = same
+            && tx.execute(
+                "INSERT OR IGNORE INTO tiny_px (id, px) VALUES (?1, ?2)",
+                params![id, px],
+            )? > 0;
+        tx.commit()?;
+        Ok(wrote)
+    }
+
     /// 高品質サムネイルの合計ディスク使用量（バイト）。部分インデックスで返る。
     pub fn thumb_cache_usage(&self) -> Result<i64, DbError> {
         Ok(self.conn.query_row(
@@ -2632,6 +2794,8 @@ impl Db {
     /// 掃除役が順に消す（同じ名前で作り直された絵は、持ち主がいるので消さない）。SVG の「要らない」印（3）は残す。
     /// 外した行の数を返す
     pub fn reset_all_thumbs(&mut self) -> Result<usize, DbError> {
+        // 4x4 の色も捨てる（作り直しは絵が壊れていたときの入口。版は進まないので引き金では消えない）
+        self.conn.execute("DELETE FROM tiny_px", [])?;
         let n = self.conn.execute(
             "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
              WHERE thumb_path IS NOT NULL OR thumb_state IN (1, 2, 4)",
@@ -8026,5 +8190,212 @@ mod tests {
             .unwrap();
         assert_eq!(db.camera_id_of_media(id).unwrap(), Some(CAMERA_NONE));
         assert!(search_names(&db, "camera:iPhone").is_empty());
+    }
+
+    /// 4x4 の色はサムネイルの付属物: パスが変わる・外れる、版が進む、行が消えると引き金で消える。
+    /// 同じパスのまま書き直しただけ（版も同じ）なら残る
+    #[test]
+    fn tiny_colours_follow_the_thumbnail() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.jpg", 100, 1000), scanned("b.jpg", 100, 1000)])
+            .unwrap();
+        let id_of = |db: &Db, name: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.to_string_lossy().ends_with(name))
+                .unwrap()
+                .id
+        };
+        let (a, b) = (id_of(&db, "a.jpg"), id_of(&db, "b.jpg"));
+        let has = |db: &Db, id: i64| {
+            db.conn
+                .prepare("SELECT 1 FROM tiny_px WHERE id = ?1")
+                .unwrap()
+                .exists([id])
+                .unwrap()
+        };
+        let put = |db: &mut Db, id: i64, path: &str| {
+            db.update_thumb_path(id, Path::new(path), 2, Some(1))
+                .unwrap();
+            db.set_tiny(id, &[7; TINY_PX_LEN]).unwrap();
+        };
+
+        put(&mut db, a, "t/a.webp");
+        put(&mut db, a, "t/a.webp");
+        assert!(has(&db, a), "同じパスで書き直しただけなら残る");
+
+        db.update_thumb_path(a, Path::new("t/a2.webp"), 2, Some(1))
+            .unwrap();
+        assert!(!has(&db, a), "パスが変わったら消える");
+
+        put(&mut db, a, "t/a2.webp");
+        db.conn
+            .execute("UPDATE media SET thumb_path = NULL WHERE id = ?1", [a])
+            .unwrap();
+        assert!(
+            has(&db, a),
+            "サムネイルが外れただけ（置き場の上限で消した）なら残る。写真は同じ"
+        );
+        db.update_thumb_path(a, Path::new("t/a3.webp"), 2, Some(1))
+            .unwrap();
+        assert!(
+            has(&db, a),
+            "外れた後に新しく付いたときも残る（作った側が置き直す）"
+        );
+
+        put(&mut db, a, "t/a3.webp");
+        db.conn
+            .execute("UPDATE media SET rev = rev + 1 WHERE id = ?1", [a])
+            .unwrap();
+        assert!(
+            !has(&db, a),
+            "版が進んだら消える（回した写真に古い向きの色を出さない）"
+        );
+
+        // 作り直す: 色も全部捨てる
+        put(&mut db, a, "t/a4.webp");
+        db.reset_all_thumbs().unwrap();
+        assert!(!has(&db, a), "作り直すと消える");
+
+        put(&mut db, b, "t/b.webp");
+        db.remove_paths(&[PathBuf::from("b.jpg")]).unwrap();
+        assert_eq!(db.list_all().unwrap().len(), 1, "行は消えた");
+        assert!(!has(&db, b), "行が消えたら消える");
+    }
+
+    /// 日の一覧に添えるのは 48 バイトの色だけ（空の「読めなかった」印は渡さない）。埋め役の候補は
+    /// サムネイルがあって色が（印も）無い行だけ。読む間にサムネイルが付け替わった行へは書かない
+    #[test]
+    fn tiny_colours_are_listed_and_filled() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.jpg", 100, 1000),
+            scanned("b.jpg", 100, 1000),
+            scanned("c.jpg", 100, 1000),
+            scanned("d.jpg", 100, 1000),
+        ])
+        .unwrap();
+        let recs = db.list_all().unwrap();
+        let id = |name: &str| {
+            recs.iter()
+                .find(|r| r.path.to_string_lossy().ends_with(name))
+                .unwrap()
+                .id
+        };
+        let day = recs[0].day_key;
+        let (a, b, c, d) = (id("a.jpg"), id("b.jpg"), id("c.jpg"), id("d.jpg"));
+        for (i, x) in [a, b, c].into_iter().enumerate() {
+            db.update_thumb_path(x, Path::new(&format!("t/{i}.webp")), 2, Some(1))
+                .unwrap();
+        }
+        db.set_tiny(a, &[9; TINY_PX_LEN]).unwrap();
+        db.set_tiny(b, &[]).unwrap(); // 読めなかった印
+
+        let listed = db.tiny_for_days(&[day]).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[&a].1, vec![9; TINY_PX_LEN]);
+
+        // c だけ（a は色あり、b は印あり、d はサムネイルが無い）
+        let todo: Vec<i64> = db
+            .tiny_to_fill(None, 10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.0)
+            .collect();
+        assert_eq!(todo, vec![c]);
+        let _ = d;
+
+        // 読んだ後にサムネイルが付け替わった: 書かない
+        db.update_thumb_path(c, Path::new("t/c-new.webp"), 2, Some(1))
+            .unwrap();
+        assert!(!db
+            .fill_tiny(c, Path::new("t/2.webp"), &[3; TINY_PX_LEN])
+            .unwrap());
+        assert!(!db.tiny_for_days(&[day]).unwrap().contains_key(&c));
+        // 今のサムネイルなら書く
+        assert!(db
+            .fill_tiny(c, Path::new("t/c-new.webp"), &[3; TINY_PX_LEN])
+            .unwrap());
+        assert_eq!(
+            db.tiny_for_days(&[day]).unwrap()[&c].1,
+            vec![3; TINY_PX_LEN]
+        );
+        // 版も添える（日の一覧の項目と突き合わせる）。1枚版も同じ答え、色の無い行・印の行は None
+        let rev_c = db.get_by_id(c).unwrap().unwrap().rev;
+        assert_eq!(db.tiny_for_days(&[day]).unwrap()[&c].0, rev_c);
+        assert_eq!(db.tiny_of(c).unwrap(), Some((rev_c, vec![3; TINY_PX_LEN])));
+        assert_eq!(db.tiny_of(b).unwrap(), None, "読めなかった印");
+        assert_eq!(db.tiny_of(d).unwrap(), None, "色が無い");
+
+        // 既に色がある行へは書かない（読む間に作り直したサムネイルの色が勝つ）
+        assert!(!db
+            .fill_tiny(c, Path::new("t/c-new.webp"), &[4; TINY_PX_LEN])
+            .unwrap());
+        assert_eq!(
+            db.tiny_for_days(&[day]).unwrap()[&c].1,
+            vec![3; TINY_PX_LEN]
+        );
+
+        // 読めなかった印は起動ごとに外す（次の起動で1回だけ読み直す）
+        assert_eq!(db.forget_unreadable_tiny().unwrap(), 1);
+        let todo: Vec<i64> = db
+            .tiny_to_fill(None, 10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.0)
+            .collect();
+        assert_eq!(todo, vec![b]);
+    }
+
+    /// 埋め役は続きから読む: 2件ずつ読むと、並び（新しい順）を飛ばさず重ねずに全部を1回ずつ返し、尽きたら空。
+    /// 索引に沿って読むので、並べ直しの一時表を作らない（PR #366 の codex）
+    #[test]
+    fn tiny_to_fill_pages_along_the_timeline_index() {
+        let mut db = Db::open_in_memory().unwrap();
+        let files: Vec<ScannedFile> = (0..5)
+            .map(|i| scanned(&format!("p{i}.jpg"), 100, 1000 + i64::from(i) * 86_400_000))
+            .collect();
+        db.upsert_files(&files).unwrap();
+        for r in db.list_all().unwrap() {
+            db.update_thumb_path(r.id, Path::new(&format!("t/{}.webp", r.id)), 2, Some(1))
+                .unwrap();
+        }
+        let mut seen = Vec::new();
+        let mut after = None;
+        loop {
+            let page = db.tiny_to_fill(after, 2).unwrap();
+            if page.is_empty() {
+                break;
+            }
+            assert!(page.len() <= 2);
+            after = Some(page.last().unwrap().2);
+            seen.extend(page.into_iter().map(|r| r.0));
+        }
+        let mut expect: Vec<(i64, i64)> = db
+            .list_all()
+            .unwrap()
+            .iter()
+            .map(|r| (r.taken_at_ms.unwrap_or(r.mtime_ms), r.id))
+            .collect();
+        expect.sort_by(|a, b| b.cmp(a));
+        assert_eq!(
+            seen,
+            expect.into_iter().map(|e| e.1).collect::<Vec<_>>(),
+            "新しい順に1回ずつ"
+        );
+
+        let plan: Vec<String> = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", tiny_to_fill_sql()))
+            .unwrap()
+            .query_map(params![1, 1, 1, 2], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            !plan.iter().any(|l| l.contains("TEMP B-TREE")),
+            "並べ直しの一時表を作らない: {plan:?}"
+        );
     }
 }
