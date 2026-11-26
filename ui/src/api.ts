@@ -407,6 +407,14 @@ export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) 
     return days;
   });
 /**
+ * Windows のビューアの全画面に入る・抜ける（#295、`win_fullscreen.rs`）。枠を外して画面ぴったりに広げる——tao の全画面と
+ * 頁の全画面は、一部の AMD の機械でカーソルを止めた。返すのは呼んだ後に全画面か
+ */
+export const setViewerFullscreen = (on: boolean) => invoke<boolean>("set_viewer_fullscreen", { on });
+/** ビューアの全画面か（`setViewerFullscreen` で入れたものだけ。Windows 以外は常に偽） */
+export const viewerFullscreen = () => invoke<boolean>("viewer_fullscreen");
+
+/**
  * 一覧の軽い索引（pictkura-dev #76、`lightIndex.ts`）。並びと地の色に要る欄だけを、全部の日の分まとめてバイト列で
  */
 export const lightIndex = (query: string, filter: MediaFilter) =>

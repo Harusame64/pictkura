@@ -102,6 +102,8 @@ import {
   appKeys,
   isMac,
   isWindows,
+  setViewerFullscreen,
+  viewerFullscreen,
   titleBarDoubleClick,
   osAppsFor,
   openWithOs,
@@ -6085,8 +6087,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // **押した物が動かなかったことは、必ず伝わるようにする。**
   /** 窓の全画面の記録を、実際の窓に合わせる。緑のボタン・Ctrl+Cmd+F など、こちらを通らずに抜けても食い違わない */
   const syncWindowFullscreen = useCallback(() => {
-    getCurrentWindow()
-      .isFullscreen()
+    // Windows はビューアの全画面を本体が自分で作る（枠を外して画面ぴったり。`win_fullscreen.rs`、#295）ので、記録も本体に訊く
+    (isWindows ? viewerFullscreen() : getCurrentWindow().isFullscreen())
       .then((on) => {
         winFullscreenRef.current = on;
         setWinFullscreen(on);
@@ -6098,8 +6100,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       winFullscreenRef.current = on;
       winFullscreenWantedRef.current = on;
       setWinFullscreen(on);
-      getCurrentWindow()
-        .setFullscreen(on)
+      // Windows は tao の全画面を使わない: 一部の AMD の機械で、tao の全画面（シェルへの「全画面の窓」の印つき）と頁の全画面の
+      // 中では、押せる物の上でカーソルが止まった。枠を外して画面ぴったりに広げただけの窓では止まらなかった（#295、win の実機）
+      (isWindows ? setViewerFullscreen(on) : getCurrentWindow().setFullscreen(on))
         .catch((e) => fail(errText(e)))
         //失敗しても、効いても、実際の窓の状態を読み直す（記録だけが先に進まないように）
         .finally(syncWindowFullscreen);
@@ -6142,12 +6145,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     //頁の全画面が無い WebView（macOS 12.3 より前、または頁が設定より先に建った起動）では、ウィンドウの全画面で
     //同じ見え方にする。`requestFullscreen` が無いと、呼んだ時点で投げて黙って何も起きなかった
     //
-    //**Windows ではいつもウィンドウの全画面にする**（#295）。頁の全画面（WebView2 の全画面の仕組み）の中では、一部の
-    //AMD の機械で、押せる物の上にカーソルが乗る・文字を選び始めると、その場でカーソルが止まった（1.0.2 でも 1.1.0
-    //でも 5 回中 5 回）。カーソルの形・ホバーの見た目・吹き出しを全部止めても止まり、ウィンドウの全画面（Tauri）・
-    //枠の無い画面ぴったりの窓・最大化では 0 回だった（win の実機、2026-11-26。画面への出し方はどれも同じ
-    //Independent Flip——分かれ目は頁の全画面の仕組みに入るかどうか）。見え方は同じ（ビューアは窓いっぱい）。
-    //Esc はビューアのキーの受け手が先に全画面を抜ける（下の Escape）
+    //**Windows では頁の全画面を使わない**（#295）。頁の全画面（WebView2）と tao の全画面の中では、一部の AMD の機械で、
+    //押せる物の上にカーソルが乗る・文字を選び始めると、その場でカーソルが止まった（1.0.2 でも 1.1.0 でも毎回）。
+    //`setWindowFullscreen` が Windows では枠を外して画面ぴったりに広げる（`win_fullscreen.rs`）。見え方は同じ
+    //（ビューアは窓いっぱい）。Esc はビューアのキーの受け手が先に全画面を抜ける（下の Escape）
     if (!document.fullscreenEnabled || isWindows) {
       setWindowFullscreen(true);
       return;

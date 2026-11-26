@@ -57,6 +57,9 @@ mod webview_args;
 // macOS の WebView に頁の全画面を入れ、窓の全画面を抜けたらキーの受け手を戻す（dev #75）
 #[cfg(target_os = "macos")]
 mod mac_fullscreen;
+// Windows のビューアの全画面: 枠を外して画面ぴったりに広げる（tao の全画面を使わない。#295）
+#[cfg(windows)]
+mod win_fullscreen;
 // OS の言語から辞書のコードを当てる（メニューの繋ぎと、WebView2 が無いときの案内。dev #72）
 mod os_dict;
 mod packaged;
@@ -1520,6 +1523,46 @@ fn item_with_tiny(db: &pictkura_core::Db, record: pictkura_core::MediaRecord) ->
         .filter(|(rev, _)| *rev == dto.rev)
         .map(|(_, px)| hex_of(&px));
     dto
+}
+
+/// ビューアの全画面に入る・抜ける（Windows だけ。#295、`win_fullscreen.rs`）。tao の全画面と頁の全画面は、一部の AMD の
+/// 機械でカーソルを止めた。返すのは、呼んだ後に全画面か。**同期のコマンド**なので主スレッドで走る（窓を作った
+/// スレッドで型と置き場所を変える）
+#[tauri::command]
+fn set_viewer_fullscreen(app: tauri::AppHandle, on: bool) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "the main window is not available".to_string())?;
+        let hwnd =
+            windows::Win32::Foundation::HWND(window.hwnd().map_err(|e| e.to_string())?.0 as _);
+        let done = if on {
+            win_fullscreen::enter(hwnd)
+        } else {
+            win_fullscreen::exit(hwnd)
+        };
+        done.map_err(|e| e.to_string())?;
+        Ok(win_fullscreen::is_on())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, on);
+        Err("only on Windows".to_string())
+    }
+}
+
+/// ビューアの全画面か（[`set_viewer_fullscreen`] で入れたものだけ。Windows 以外は常に偽）
+#[tauri::command]
+fn viewer_fullscreen() -> bool {
+    #[cfg(windows)]
+    {
+        win_fullscreen::is_on()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 /// 一覧の軽い索引の1枚の大きさ（バイト）。並びは UI の `lightIndex.ts` と対で、変えるなら両方と [`LIGHT_INDEX_MAGIC`] を
@@ -9240,6 +9283,8 @@ pub fn run() {
             list_day,
             list_days,
             light_index,
+            set_viewer_fullscreen,
+            viewer_fullscreen,
             list_memories,
             get_stats,
             startup_scan_finished,
