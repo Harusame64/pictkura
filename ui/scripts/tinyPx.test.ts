@@ -39,3 +39,10 @@ test("different colours for the same version replace the first ones (instant →
   rememberTiny(8, 1, hexOf(new Array(48).fill(99)));
   assert.equal(tinyPixels(8, 1)?.[0], 99);
 });
+
+test("forgetting all colours (rebuild thumbnails) drops every version", async () => {
+  const { forgetAllTiny } = await import("../src/tinyPx.ts");
+  rememberTiny(9, 1, hexOf(new Array(48).fill(5)));
+  forgetAllTiny();
+  assert.equal(tinyPixels(9, 1), undefined);
+});

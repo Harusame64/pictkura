@@ -2103,6 +2103,20 @@ impl Db {
         Ok(out)
     }
 
+    /// 1枚の写真の 4x4 の色と、そのときの版（[`Db::tiny_for_days`] の1枚版。サムネイルが出来た知らせに添える）。
+    /// 色が無い・「読めなかった」の印なら `None`
+    pub fn tiny_of(&self, id: i64) -> Result<Option<(i64, Vec<u8>)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.rev, t.px FROM media m JOIN tiny_px t ON t.id = m.id
+             WHERE m.id = ?1 AND length(t.px) = ?2",
+        )?;
+        let mut rows = stmt.query(params![id, TINY_PX_LEN as i64])?;
+        Ok(match rows.next()? {
+            Some(r) => Some((r.get(0)?, r.get(1)?)),
+            None => None,
+        })
+    }
+
     /// 「読めなかった」の印を外す（掃除役が起動ごとに1回。一時的に読めなかった——ウイルス対策が掴んでいた、
     /// 置き場のドライブがまだ無かった——サムネイルを、次の起動で1回だけ読み直す）
     pub fn forget_unreadable_tiny(&self) -> Result<usize, DbError> {
@@ -8251,9 +8265,12 @@ mod tests {
             db.tiny_for_days(&[day]).unwrap()[&c].1,
             vec![3; TINY_PX_LEN]
         );
-        // 版も添える（日の一覧の項目と突き合わせる）
+        // 版も添える（日の一覧の項目と突き合わせる）。1枚版も同じ答え、色の無い行・印の行は None
         let rev_c = db.get_by_id(c).unwrap().unwrap().rev;
         assert_eq!(db.tiny_for_days(&[day]).unwrap()[&c].0, rev_c);
+        assert_eq!(db.tiny_of(c).unwrap(), Some((rev_c, vec![3; TINY_PX_LEN])));
+        assert_eq!(db.tiny_of(b).unwrap(), None, "読めなかった印");
+        assert_eq!(db.tiny_of(d).unwrap(), None, "色が無い");
 
         // 既に色がある行へは書かない（読む間に作り直したサムネイルの色が勝つ）
         assert!(!db

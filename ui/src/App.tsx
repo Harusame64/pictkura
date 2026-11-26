@@ -26,7 +26,7 @@ import { navLabel } from "./navLabel";
 import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
 import { GridThumb } from "./GridThumb";
 import { TinyCanvas } from "./TinyCanvas";
-import { tinyPixels } from "./tinyPx";
+import { rememberTiny, tinyPixels } from "./tinyPx";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
@@ -2413,6 +2413,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       patchTimer.current = window.setTimeout(flush, ms);
     };
     listen<MediaItem>("media-updated", (ev) => {
+      // サムネイルが出来た知らせは、その写真の 4x4 の色も運ぶ（日の一覧は読み直されない。`tinyPx.ts`）
+      rememberTiny(ev.payload.id, ev.payload.rev, ev.payload.tiny);
       patchBuffer.current.push(ev.payload);
       // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
       // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）

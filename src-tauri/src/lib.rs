@@ -1511,6 +1511,17 @@ fn hex_of(bytes: &[u8]) -> String {
     out
 }
 
+/// 1枚の行の DTO に、その写真の 4x4 の色を添える（同じ版の色だけ）。サムネイルが出来た知らせ（`media-updated`）
+/// に使う——日の一覧は読み直されないので、知らせが色を運ばないと、出来た写真の地が画面に出なかった（win2、PR #366）
+fn item_with_tiny(db: &pictkura_core::Db, record: pictkura_core::MediaRecord) -> MediaItemDto {
+    let tiny = db.tiny_of(record.id).ok().flatten();
+    let mut dto = MediaItemDto::from(record);
+    dto.tiny = tiny
+        .filter(|(rev, _)| *rev == dto.rev)
+        .map(|(_, px)| hex_of(&px));
+    dto
+}
+
 /// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
 ///
 /// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
@@ -8418,9 +8429,15 @@ pub fn run() {
                 config.performance.worker_threads,
                 move |id, camera| {
                     let state = thumb_handle.state::<AppState>();
-                    let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
-                    if let Some(record) = record {
-                        let _ = thumb_handle.emit("media-updated", MediaItemDto::from(record));
+                    // 出来た写真の色も添える（日の一覧は読み直されない）
+                    let item = state.read_pool.with(|db| {
+                        db.get_by_id(id)
+                            .ok()
+                            .flatten()
+                            .map(|r| item_with_tiny(db, r))
+                    });
+                    if let Some(item) = item {
+                        let _ = thumb_handle.emit("media-updated", item);
                     }
                     // `media-updated` の DTO にカメラの欄は無いので、カメラは別に知らせる
                     // （dev #28。`Unchanged` を捨てるのも含め、何を数え直すかは
@@ -9026,7 +9043,8 @@ pub fn run() {
                     pictkura_core::panics::catching(&format!("media request {uri}"), || {
                         // 古い日で頼んできたタイルへ、いまの行を配り直す（一覧が日を動かす）
                         let resend = |record: pictkura_core::MediaRecord| {
-                            let _ = app.emit("media-updated", MediaItemDto::from(record));
+                            let item = state.read_pool.with(|db| item_with_tiny(db, record));
+                            let _ = app.emit("media-updated", item);
                         };
                         handle_media_request(&state, &uri, range.as_deref(), &resend)
                     })

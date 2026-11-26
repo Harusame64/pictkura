@@ -48,6 +48,7 @@ import {
   type ExternalApp,
   type FolderPattern,
 } from "./api";
+import { forgetAllTiny } from "./tinyPx";
 import { OutgoingFolderActions } from "./OutgoingFolderActions";
 import { usePlatform } from "./usePlatform";
 import { confirmAction, confirmTemporaryDestination } from "./confirm";
@@ -1074,6 +1075,8 @@ export default function Settings({
                   setRebuilding(true);
                   try {
                     await rebuildThumbnails();
+                    // 前の絵の 4x4 の色を捨てる（作り直しでは版が進まない。`tinyPx.ts`）
+                    forgetAllTiny();
                     setThumbInfo(await thumbCacheInfo());
                   } catch (err) {
                     onError(errText(err));

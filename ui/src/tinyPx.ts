@@ -53,3 +53,11 @@ export function rememberTiny(id: number, rev: number, hex: string | null | undef
 
 /** 覚えた色（RGBA 64 バイト）。その版の色がまだ無ければ undefined */
 export const tinyPixels = (id: number, rev: number) => pixels.get(keyOf(id, rev));
+
+/**
+ * 覚えた色を全部捨てる（設定の「サムネイルを作り直す」）。作り直しでは版が進まないので、捨てないと前の絵の
+ * 色が出続ける（win2、PR #366）。作り直された写真の色は、出来た知らせと日の一覧でまた届く
+ */
+export function forgetAllTiny() {
+  pixels.clear();
+}
