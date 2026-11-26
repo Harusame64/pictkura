@@ -7352,6 +7352,15 @@ fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
     }
 }
 
+/// 埋め役が埋めた色の知らせ（`tiny-filled`）の1件
+#[derive(serde::Serialize, Clone)]
+struct TinyFilledDto {
+    id: i64,
+    rev: i64,
+    /// 16進 96 文字（[`MediaItemDto::tiny`] と同じ形）
+    tiny: String,
+}
+
 /// 4x4 の色の埋め役（pictkura-dev #76）。新しく作るサムネイルは作るときに色も書く（`thumbs::publish_thumb`）。
 /// これはその前からあるサムネイル（前の版・版が進んでも残ったもの）のぶん。
 ///
@@ -7387,11 +7396,16 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
                 }
                 started.get_or_insert_with(std::time::Instant::now);
                 let mut wrote = 0usize;
+                // 埋めた写真（UI へまとめて知らせる）
+                let mut done_ids: Vec<i64> = Vec::new();
                 let mut failed: Option<String> = None;
                 for (id, path) in rows {
                     let px = pictkura_core::thumbs::tiny_px_of_file(&path).unwrap_or_default();
                     match lock_ok(&state.db).fill_tiny(id, &path, &px) {
-                        Ok(true) => wrote += 1,
+                        Ok(true) => {
+                            wrote += 1;
+                            done_ids.push(id);
+                        }
                         Ok(false) => {}
                         Err(e) => {
                             // 書けない（DB が長く握られている等）。同じ 64 枚を読み続けないよう、この周を
@@ -7402,6 +7416,26 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
                     }
                 }
                 filled += wrote;
+                // 埋めた色を UI へ知らせる。日の一覧を先に読んで覚えた日は読み直されないので、知らせないと
+                // 戻っても灰色のままだった（PR #366 の codex）。版を添え、UI は同じ版の色だけ使う
+                if !done_ids.is_empty() {
+                    let items: Vec<TinyFilledDto> = state.read_pool.with(|db| {
+                        done_ids
+                            .iter()
+                            .filter_map(|&id| {
+                                let (rev, px) = db.tiny_of(id).ok().flatten()?;
+                                Some(TinyFilledDto {
+                                    id,
+                                    rev,
+                                    tiny: hex_of(&px),
+                                })
+                            })
+                            .collect()
+                    });
+                    if !items.is_empty() {
+                        let _ = app.emit("tiny-filled", items);
+                    }
+                }
                 let pause = if let Some(e) = failed {
                     // 書けないまま（読み取り専用になった等）: 1 分から倍々に、30 分で頭打ち。記録は最初の1回
                     if write_failures == 0 {

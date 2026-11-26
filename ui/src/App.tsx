@@ -2444,6 +2444,25 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     };
   }, [applyPatches, gridWaiters]);
 
+  // 埋め役が前の版のサムネイルに 4x4 の色を埋めた（`tinyPx.ts`）。先に読んで覚えた日は読み直されないので、
+  // 届いた色を覚えて一覧を描き直す（PR #366 の codex）。知らせは 64 枚ずつ、多くても 1 秒に 1〜2 回
+  const [, setTinyGen] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ id: number; rev: number; tiny: string }[]>("tiny-filled", (ev) => {
+      for (const it of ev.payload) rememberTiny(it.id, it.rev, it.tiny);
+      setTinyGen((g) => g + 1);
+    }).then((f) => {
+      if (cancelled) f();
+      else unlisten = f;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   const onSync = useCallback(async () => {
     setBusy(true);
     try {
