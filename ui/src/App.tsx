@@ -1622,6 +1622,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const lightSeqRef = useRef({ asked: 0, applied: 0 });
   /** 最後に読み始めた時刻（続けて読む間隔の下限を数える） */
   const lightAskedAtRef = useRef(0);
+  /** 読んでいる最中の数（索引がまだ無いのが「読めなかった」のか「届く前」なのかを分ける） */
+  const lightInflightRef = useRef(0);
   /**
    * 軽い索引を読む。世代が替わっていた・後から頼んだ分が先に当たっていたら捨てる。落ちても黙る（索引は飾り——仮の行で
    * 今までどおり並ぶ。読めないままなら、骨組みの読み直しがまた頼む）
@@ -1629,13 +1631,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const loadLight = useCallback((gen: number) => {
     const seq = ++lightSeqRef.current.asked;
     lightAskedAtRef.current = Date.now();
+    lightInflightRef.current += 1;
     lightIndex(queryRef.current, filterRef.current)
       .then((buf) => {
         if (generationRef.current !== gen || seq < lightSeqRef.current.applied) return;
         lightSeqRef.current.applied = seq;
         setLight(decodeLightIndex(buf));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        lightInflightRef.current -= 1;
+      });
   }, []);
   /**
    * 骨組みや差分と合わなくなった索引を読み直す（まとめて数秒に 1 回まで）。合わない日は、読み直すまで仮の行で並ぶ
@@ -1814,9 +1820,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     setLoadError(null);
     setStats(st);
     // 枚数の合わない日が出たら、索引を読み直す（写真が入った・移った。「読み込み中の写真」の束は数が動き続けるので見ない）
-    // 索引が無い（読めなかった）ときも頼み直す
+    // 索引が無い（読めなかった）ときも頼み直す。読んでいる最中なら頼まない——起動の直後、索引が届く前のこの読み直しが
+    // 予約して、30 秒後に変わっていない索引をもう一度読んでいた（win2 の実機、PR #367）
     const li = lightRef.current;
-    if (!li || sum.some((d) => d.day_key !== UNREAD_DAY && (li.days.get(d.day_key)?.length ?? 0) !== d.count)) {
+    if (
+      (!li && lightInflightRef.current === 0) ||
+      (li && sum.some((d) => d.day_key !== UNREAD_DAY && (li.days.get(d.day_key)?.length ?? 0) !== d.count))
+    ) {
       scheduleLightReload();
     }
     setDayItems((prev) => {
