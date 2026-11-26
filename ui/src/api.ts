@@ -406,6 +406,11 @@ export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) 
     for (const d of days) for (const it of d.items ?? []) rememberTiny(it.id, it.rev, it.tiny);
     return days;
   });
+/**
+ * 一覧の軽い索引（pictkura-dev #76、`lightIndex.ts`）。並びと地の色に要る欄だけを、全部の日の分まとめてバイト列で
+ */
+export const lightIndex = (query: string, filter: MediaFilter) =>
+  invoke<ArrayBuffer>("light_index", { query, filter });
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */

@@ -27,6 +27,7 @@ export function GridThumb({
   recent,
   waiters,
   onDone,
+  lightOnly,
 }: {
   /** 写真の id（空のタイルが、働き手の知らせを待つ宛先） */
   id: number;
@@ -51,6 +52,11 @@ export function GridThumb({
   waiters: BlankWaiters;
   /** 届いた・失敗した（`revealThumb`。地の灰色を見せる印を付ける） */
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
+  /**
+   * 軽い索引のタイル（pictkura-dev #76）。`ready` の絵が出せなくても**列の道へ回らない**——列は原本を読み（クラウドに
+   * しか無いファイルを落とす）、生成を積む。通り過ぎるだけのタイルにそれはさせない。地の色のまま、本番のタイルを待つ
+   */
+  lightOnly?: boolean;
 }) {
   const ref = useRef<HTMLImageElement>(null);
   // `ready` の URL が空・404 で返った（一覧の行が古く、サムネイルが消えていた等）。その URL の間だけ列の道で問い直す
@@ -63,6 +69,9 @@ export function GridThumb({
   // `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
   // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
   const src = day === undefined ? `${url}&grid=1` : `${url}&grid=1&day=${day}`;
+  // 軽い索引のタイルは `light=1` で読む（Rust はサムネイルだけを返し、無ければ空。原本も生成も無し）。覚えるのは
+  // 本番のタイルの鍵（`src`）で——本番に替わったとき、覚えた絵をそのまま出す（読み直さない）
+  const fetchSrc = lightOnly ? `${url}&light=1` : src;
   const stale = staleSrc === src;
   useLayoutEffect(() => {
     const el = ref.current;
@@ -82,15 +91,15 @@ export function GridThumb({
       el.setAttribute("data-instant", "");
       const settle = () => {
         if (paintable(el)) {
-          recent.add(src, src);
+          recent.add(src, fetchSrc);
         } else {
           el.removeAttribute("src");
-          setStaleSrc(src);
+          if (!lightOnly) setStaleSrc(src);
         }
       };
       el.addEventListener("load", settle, { once: true });
       el.addEventListener("error", settle, { once: true });
-      el.src = src;
+      el.src = fetchSrc;
       return () => {
         el.removeEventListener("load", settle);
         el.removeEventListener("error", settle);
@@ -131,7 +140,7 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, wakes, ready, stale]);
+  }, [src, fetchSrc, loader, recent, waiters, id, wakes, ready, stale, lightOnly]);
   // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、サムネイルが
   // まだ無ければ作る列から降ろす（`BlankWaiters.leave`）。原本が描けたタイルも降ろす——Rust は原本を返すときも
   // 列に積んでいて、通り過ぎた写真の本番が、止めた画面の HEIC・RAW の前に並んだ（PR #356 の /code-review）
