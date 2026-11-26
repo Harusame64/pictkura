@@ -648,7 +648,7 @@ export const ko: Dict = {
     pick: "선별한 사진(⚑)만",
   },
   settingsHardwareAccelerationNote:
-    "평소에는 켜 두세요. 화면 표시가 이상할 때 꺼서 확인해 볼 수 있습니다. 설정을 끄면 동영상 재생 시 CPU 사용량이 늘어납니다. 변경 사항은 다음에 pictkura를 실행할 때 적용됩니다.",
+    "평소에는 켜 두십시오. 화면 표시가 이상할 때는 꺼서 확인해 볼 수 있습니다. 설정을 끄면 동영상 재생 시 CPU 사용량이 늘어납니다. 변경 사항은 다음에 pictkura를 실행할 때 적용됩니다.",
   settingsImportWaitingFrom: (path: string) =>
     `${path}에서 가져오기가 기다리고 있습니다. 설정을 닫으면 열립니다.`,
   settingsImportWaiting: "가져오기가 기다리고 있습니다. 설정을 닫으면 열립니다.",
