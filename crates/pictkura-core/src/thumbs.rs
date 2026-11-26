@@ -1815,6 +1815,37 @@ pub fn tiny_px(rgb: &image::RgbImage) -> Vec<u8> {
     image::imageops::thumbnail(rgb, 4, 4).into_raw()
 }
 
+/// 回す前の絵 `img` の中央を、写真の縦横比（表示の向きの `width`×`height`。向き 5〜8 は回す前に縦横が逆）に
+/// 切る。寸法が分からない・比がほぼ同じ（2% 以内）ならそのまま
+fn crop_to_aspect(
+    img: &image::DynamicImage,
+    width: i64,
+    height: i64,
+    orientation: u8,
+) -> image::DynamicImage {
+    if width <= 0 || height <= 0 || img.width() == 0 || img.height() == 0 {
+        return img.clone();
+    }
+    let (aw, ah) = if (5..=8).contains(&orientation) {
+        (height as f64, width as f64)
+    } else {
+        (width as f64, height as f64)
+    };
+    let (iw, ih) = (f64::from(img.width()), f64::from(img.height()));
+    let want = aw / ah;
+    let have = iw / ih;
+    if (have / want - 1.0).abs() <= 0.02 {
+        return img.clone();
+    }
+    let (cw, ch) = if have > want {
+        ((ih * want).round().max(1.0), ih)
+    } else {
+        (iw, (iw / want).round().max(1.0))
+    };
+    let (cw, ch) = (cw as u32, ch as u32);
+    img.crop_imm((img.width() - cw) / 2, (img.height() - ch) / 2, cw, ch)
+}
+
 /// 置いてあるサムネイルのファイルから [`tiny_px`] を作る（前の版で作ったサムネイルを埋める掃除役が使う）。
 /// 読めなければ `None`
 pub fn tiny_px_of_file(path: &Path) -> Option<Vec<u8>> {
@@ -1847,8 +1878,11 @@ fn publish_thumb(
     // （PR #208 の codex。版ごとの名前にはしない）
     let published = db.guarded(id, record.version(), |db| {
         db.update_thumb_path(id, final_path, thumb_state, thumb_bytes)?;
-        // 4x4 の色はサムネイルと同じ書き込みで（付け替えの引き金が前の色を消した後に置く）
-        db.set_tiny(id, tiny)?;
+        // 4x4 の色はサムネイルと同じ書き込みで置く。**飾りなので、置けなくてもサムネイルは止めない**
+        // （置けなかった色は掃除役が後で埋める。PR #366 の /code-review）
+        if let Err(e) = db.set_tiny(id, tiny) {
+            crate::applog::note(&format!("tiny colours not written for {id}: {e}"));
+        }
         std::fs::rename(tmp, final_path)?;
         Ok::<_, ThumbError>(())
     });
@@ -2272,10 +2306,16 @@ pub fn process_one_job(
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
                 ensure_parent(&jpg_path)?;
-                // 4x4 に縮めてから回す（回した後の向きで並べる。4x4 を回すだけなので安い）
+                // 写真の縦横比に切ってから 4x4 に縮め、回す（回した後の向きで並べる。4x4 を回すだけなので安い）。
+                // 埋め込みの絵は 4:3 の枠に 3:2 の写真を入れ、上下に黒い帯を持つことが多い——切らないと地の
+                // 上下が黒くなる（PR #366 の /code-review）
                 let tiny = tiny_px(
-                    &apply_orientation(embedded.thumbnail_exact(4, 4), exif_data.orientation)
-                        .to_rgb8(),
+                    &apply_orientation(
+                        crop_to_aspect(&embedded, dims.width, dims.height, exif_data.orientation)
+                            .thumbnail_exact(4, 4),
+                        exif_data.orientation,
+                    )
+                    .to_rgb8(),
                 );
                 let tmp = write_temp_thumb(&jpg_path, |p| {
                     if exif_data.orientation == 1 {
@@ -6673,6 +6713,33 @@ mod tiny_tests {
                 "行 {row} の右端"
             );
         }
+    }
+
+    /// 4:3 の枠に入った 3:2 の写真（上下に黒い帯）: 写真の比に切ると帯が落ちる。縦の写真（向き 6）は回す前の
+    /// 縦横で切る。寸法が分からなければ切らない
+    #[test]
+    fn crop_to_aspect_drops_letterbox_bars() {
+        // 160x120 の枠、上下 13px ずつ黒
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(160, 120, |_, y| {
+            if !(13..107).contains(&y) {
+                image::Rgb([0, 0, 0])
+            } else {
+                image::Rgb([200, 100, 50])
+            }
+        }));
+        let c = super::crop_to_aspect(&img, 6000, 4000, 1);
+        assert_eq!((c.width(), c.height()), (160, 107));
+        let px = super::tiny_px(&c.thumbnail_exact(4, 4).to_rgb8());
+        assert!(
+            px[0] > 100 && px[45] > 100,
+            "上の行も下の行も帯の黒ではない: {px:?}"
+        );
+        // 縦の写真（表示 4000x6000、向き 6）: 回す前は 6000x4000 の比で切る
+        let c6 = super::crop_to_aspect(&img, 4000, 6000, 6);
+        assert_eq!((c6.width(), c6.height()), (160, 107));
+        // 寸法が分からない・比が同じ: そのまま
+        assert_eq!(super::crop_to_aspect(&img, 0, 0, 1).height(), 120);
+        assert_eq!(super::crop_to_aspect(&img, 4000, 3000, 1).height(), 120);
     }
 
     /// ファイルから作っても同じ（埋め役の道）。読めないファイルは None

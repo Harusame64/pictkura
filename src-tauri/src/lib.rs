@@ -869,8 +869,8 @@ struct MediaItemDto {
     /// 読めた同士でしか RAW+JPEG を重ねない——mtime が偶然同じ別の写真を組にしない（PRのcodex）
     taken_at_known: bool,
     /// 写真の 4x4 の色（RGB を16進で96文字、上の行から）。一覧は絵が届くまでタイルの地に敷く（pictkura-dev #76）。
-    /// **日の一覧（[`list_days`]）だけが入れる**——ほかの道（`media-updated` など）は null で、UI は id と版で
-    /// 覚えた色を使い続ける
+    /// 入れるのは日の一覧（[`list_days`]）と、サムネイルが出来た知らせ（[`item_with_tiny`] を通す `media-updated`）。
+    /// ほかの道は null で、UI は id と版で覚えた色を使い続ける
     tiny: Option<String>,
     /// `taken_at_ms` が秒未満まで分かっているか（dev #32。連写は間隔で切るので、
     /// 秒までしか分からない写真は束ねない）
@@ -7367,6 +7367,8 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
             let _ = lock_ok(&state.db).forget_unreadable_tiny();
             let mut filled = 0usize;
             let mut started: Option<std::time::Instant> = None;
+            // 書けなかった周が続いた数（待ちを延ばし、記録は最初の1回だけ）
+            let mut write_failures = 0u32;
             loop {
                 let rows = state
                     .read_pool
@@ -7401,12 +7403,17 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
                 }
                 filled += wrote;
                 let pause = if let Some(e) = failed {
-                    applog::note(&format!("tiny colours: cannot write, waiting: {e}"));
-                    60_000
+                    // 書けないまま（読み取り専用になった等）: 1 分から倍々に、30 分で頭打ち。記録は最初の1回
+                    if write_failures == 0 {
+                        applog::note(&format!("tiny colours: cannot write, waiting: {e}"));
+                    }
+                    write_failures = write_failures.saturating_add(1);
+                    (60_000u64 << write_failures.min(5).saturating_sub(1)).min(30 * 60_000)
                 } else if wrote == 0 {
                     // 読む間に全部付け替わった
                     5_000
                 } else {
+                    write_failures = 0;
                     50
                 };
                 std::thread::sleep(std::time::Duration::from_millis(pause));

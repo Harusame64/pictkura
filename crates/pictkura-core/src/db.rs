@@ -923,11 +923,12 @@ impl Db {
             END;
             "#,
         )?;
-        // 写真ごとの 4x4 の色（一覧が、絵の届く前のタイルに敷く。pictkura-dev #76）。**サムネイルの付属物**として
-        // 扱う: サムネイルを付け替えるのと同じ書き込みで入れ（`thumbs::publish_thumb`）、サムネイルのパスが
-        // 変わった・外れた、中身の版（`rev`）が進んだ、行が消えたときは引き金で消す。消えた行は、残った
-        // サムネイルから掃除役が埋め直す（[`Db::tiny_to_fill`]）。空の `px` は「読めなかった」の印で、
-        // 埋め直しの対象から外すためだけに置く（一覧には渡さない）
+        // 写真ごとの 4x4 の色（一覧が、絵の届く前のタイルに敷く。pictkura-dev #76）。サムネイルを付け替えるのと
+        // 同じ書き込みで入れる（`thumbs::publish_thumb`）。引き金で消すのは、中身の版（`rev`）が進んだ・行が消えた・
+        // サムネイルが**別の**ファイルに替わったとき。**サムネイルが外れただけ（置き場の上限で消した）では消さない**
+        // ——写真は同じなので色は正しいまま。速く通り過ぎる古い写真ほど上限で消され、そこで地まで失った
+        // （PR #366 の /code-review）。消えた行は、残ったサムネイルから掃除役が埋め直す（[`Db::tiny_to_fill`]）。
+        // 空の `px` は「読めなかった」の印で、埋め直しの対象から外すためだけに置く（一覧には渡さない）
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS tiny_px (
@@ -937,10 +938,12 @@ impl Db {
             CREATE TRIGGER IF NOT EXISTS tiny_px_ad AFTER DELETE ON media BEGIN
                 DELETE FROM tiny_px WHERE id = old.id;
             END;
-            CREATE TRIGGER IF NOT EXISTS tiny_px_au_thumb AFTER UPDATE OF thumb_path ON media
-            WHEN new.thumb_path IS NOT old.thumb_path BEGIN
+            CREATE TRIGGER IF NOT EXISTS tiny_px_au_thumb2 AFTER UPDATE OF thumb_path ON media
+            WHEN new.thumb_path IS NOT NULL AND old.thumb_path IS NOT NULL
+                AND new.thumb_path <> old.thumb_path BEGIN
                 DELETE FROM tiny_px WHERE id = old.id;
             END;
+            DROP TRIGGER IF EXISTS tiny_px_au_thumb;
             CREATE TRIGGER IF NOT EXISTS tiny_px_au_rev AFTER UPDATE OF rev ON media
             WHEN new.rev IS NOT old.rev BEGIN
                 DELETE FROM tiny_px WHERE id = old.id;
@@ -2754,6 +2757,8 @@ impl Db {
     /// 掃除役が順に消す（同じ名前で作り直された絵は、持ち主がいるので消さない）。SVG の「要らない」印（3）は残す。
     /// 外した行の数を返す
     pub fn reset_all_thumbs(&mut self) -> Result<usize, DbError> {
+        // 4x4 の色も捨てる（作り直しは絵が壊れていたときの入口。版は進まないので引き金では消えない）
+        self.conn.execute("DELETE FROM tiny_px", [])?;
         let n = self.conn.execute(
             "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
              WHERE thumb_path IS NOT NULL OR thumb_state IN (1, 2, 4)",
@@ -8191,7 +8196,16 @@ mod tests {
         db.conn
             .execute("UPDATE media SET thumb_path = NULL WHERE id = ?1", [a])
             .unwrap();
-        assert!(!has(&db, a), "サムネイルが外れたら消える");
+        assert!(
+            has(&db, a),
+            "サムネイルが外れただけ（置き場の上限で消した）なら残る。写真は同じ"
+        );
+        db.update_thumb_path(a, Path::new("t/a3.webp"), 2, Some(1))
+            .unwrap();
+        assert!(
+            has(&db, a),
+            "外れた後に新しく付いたときも残る（作った側が置き直す）"
+        );
 
         put(&mut db, a, "t/a3.webp");
         db.conn
@@ -8201,6 +8215,11 @@ mod tests {
             !has(&db, a),
             "版が進んだら消える（回した写真に古い向きの色を出さない）"
         );
+
+        // 作り直す: 色も全部捨てる
+        put(&mut db, a, "t/a4.webp");
+        db.reset_all_thumbs().unwrap();
+        assert!(!has(&db, a), "作り直すと消える");
 
         put(&mut db, b, "t/b.webp");
         db.remove_paths(&[PathBuf::from("b.jpg")]).unwrap();

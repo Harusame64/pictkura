@@ -1073,10 +1073,12 @@ export default function Settings({
                   );
                   if (!ok) return;
                   setRebuilding(true);
+                  // 前の絵の 4x4 の色を、**頼む前に**捨てる（作り直しでは版が進まない。`tinyPx.ts`）。後で捨てると、
+                  // 作り直しの知らせ（`library-updated`）で一覧が古い色のまま描き直された後になり、もう描き直されず、
+                  // 先に届いた新しい色まで消した（PR #366 の /code-review）
+                  forgetAllTiny();
                   try {
                     await rebuildThumbnails();
-                    // 前の絵の 4x4 の色を捨てる（作り直しでは版が進まない。`tinyPx.ts`）
-                    forgetAllTiny();
                     setThumbInfo(await thumbCacheInfo());
                   } catch (err) {
                     onError(errText(err));

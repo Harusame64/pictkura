@@ -9,7 +9,7 @@ import { rememberTiny } from "./tinyPx";
 import { locale, readLocaleChoice, t } from "./i18n";
 
 export interface MediaItem {
-  /** 4x4 の色（16進 96 文字）。日の一覧だけが入れる（`tinyPx.ts`）。ほかの道では null か無し */
+  /** 4x4 の色（16進 96 文字）。日の一覧とサムネイルが出来た知らせが入れる（`tinyPx.ts`）。ほかの道では null か無し */
   tiny?: string | null;
   id: number;
   file_name: string;

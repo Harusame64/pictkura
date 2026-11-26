@@ -1494,6 +1494,11 @@ input[type="range"]:focus-visible {
   /* 地（絶対配置の canvas）より上に描く */
   position: relative;
 }
+/* 選んだタイルは届く前でも <img> を見せる（下の `.picked .cell`）。そのままだと <img> の地の色が 4x4 の地を
+   覆うので、届くまでは透かす（PR #366 の /code-review） */
+.cell-wrap.picked .cell:not([data-shown]) {
+  background: transparent;
+}
 /* サムネイルがもうあるタイル（`GridThumb.tsx` の `ready`）は、届いたらその場で出す。一気に送ると、タイルが画面に
    居るのは数十 ms——浮かべると、多くがフェードの途中の暗い絵のまま去った（win2: 動いている間の絵 0.79 → 0.50） */
 .cell[data-instant] {
