@@ -7365,7 +7365,8 @@ struct TinyFilledDto {
 /// これはその前からあるサムネイル（前の版・版が進んでも残ったもの）のぶん。
 ///
 /// 読むのはアプリのサムネイル置き場のファイルだけ——写真の原本にもクラウドにも触らない。起動の仕事
-/// （同期・走査）を先に通すため少し待ってから始め、64 枚ずつ、間を空けて読む。尽きたら 1 分ごとに見直す。
+/// （同期・走査）を先に通すため少し待ってから始め、一覧の並びで続きから 64 枚ずつ、間を空けて読む。
+/// 1周読み終えたら 10 分後に見直す。
 /// 読めなかったサムネイルには空の印を置き、同じファイルを読み続けない
 fn spawn_tiny_filler(app: tauri::AppHandle) {
     std::thread::spawn(move || {
@@ -7378,12 +7379,17 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
             let mut started: Option<std::time::Instant> = None;
             // 書けなかった周が続いた数（待ちを延ばし、記録は最初の1回だけ）
             let mut write_failures = 0u32;
+            // 読み進めた位置（一覧の並びで続きから読む。毎回先頭から探さない。PR #366 の codex）
+            let mut after: Option<pictkura_core::TinyCursor> = None;
             loop {
                 let rows = state
                     .read_pool
-                    .with(|db| db.tiny_to_fill(64))
+                    .with(|db| db.tiny_to_fill(after, 64))
                     .unwrap_or_default();
                 if rows.is_empty() {
+                    // 1周読み終えた。新しいサムネイルは作るときに色を書くので、後から埋める行はまれ——
+                    // 次の見直しまで長く空ける
+                    after = None;
                     if let Some(t) = started.take() {
                         applog::note(&format!(
                             "tiny colours filled for {filled} thumbnails in {} s",
@@ -7391,15 +7397,16 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
                         ));
                         filled = 0;
                     }
-                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    std::thread::sleep(std::time::Duration::from_secs(600));
                     continue;
                 }
                 started.get_or_insert_with(std::time::Instant::now);
+                let next_after = rows.last().map(|r| r.2);
                 let mut wrote = 0usize;
                 // 埋めた写真（UI へまとめて知らせる）
                 let mut done_ids: Vec<i64> = Vec::new();
                 let mut failed: Option<String> = None;
-                for (id, path) in rows {
+                for (id, path, _) in rows {
                     let px = pictkura_core::thumbs::tiny_px_of_file(&path).unwrap_or_default();
                     match lock_ok(&state.db).fill_tiny(id, &path, &px) {
                         Ok(true) => {
@@ -7416,6 +7423,10 @@ fn spawn_tiny_filler(app: tauri::AppHandle) {
                     }
                 }
                 filled += wrote;
+                // 書けなかった周は同じ位置から読み直す。ほかは続きへ（読む間に付け替わった行は次の周で拾う）
+                if failed.is_none() {
+                    after = next_after;
+                }
                 // 埋めた色を UI へ知らせる。日の一覧を先に読んで覚えた日は読み直されないので、知らせないと
                 // 戻っても灰色のままだった（PR #366 の codex）。版を添え、UI は同じ版の色だけ使う
                 if !done_ids.is_empty() {

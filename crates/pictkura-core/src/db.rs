@@ -36,6 +36,25 @@ pub enum DbError {
 /// 写真ごとの 4x4 の色の大きさ（RGB、上の行から。pictkura-dev #76）
 pub const TINY_PX_LEN: usize = 48;
 
+/// [`Db::tiny_to_fill`] の問い合わせ（試験が同じ文字列の実行計画を見る）
+fn tiny_to_fill_sql() -> String {
+    format!(
+        "SELECT m.id, m.thumb_path, m.day_key, {SORT_TS} FROM media m INDEXED BY idx_media_day_sort
+         WHERE (m.day_key, {SORT_TS}, m.id) < (?1, ?2, ?3)
+           AND m.thumb_path IS NOT NULL AND m.thumb_state IN (1, 2)
+           AND NOT EXISTS (SELECT 1 FROM tiny_px t WHERE t.id = m.id)
+         ORDER BY m.day_key DESC, {SORT_TS} DESC, m.id DESC LIMIT ?4"
+    )
+}
+
+/// 4x4 の色の埋め役が読み進めた位置（[`Db::tiny_to_fill`]。タイムラインの並びの鍵）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TinyCursor {
+    pub day_key: i64,
+    pub sort_ts: i64,
+    pub id: i64,
+}
+
 /// `media` テーブルの1行。
 #[derive(Debug, Clone, PartialEq)]
 pub struct MediaRecord {
@@ -2129,15 +2148,33 @@ impl Db {
     }
 
     /// サムネイルはあるのに 4x4 の色がまだ無い行（前の版で作ったサムネイル、版が進んだ後もサムネイルが
-    /// 残った行）。新しい撮影日から `limit` 件——掃除役が埋める順で、一覧の先頭から先に揃う
-    pub fn tiny_to_fill(&self, limit: usize) -> Result<Vec<(i64, PathBuf)>, DbError> {
-        let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT m.id, m.thumb_path FROM media m LEFT JOIN tiny_px t ON t.id = m.id
-             WHERE m.thumb_path IS NOT NULL AND m.thumb_state IN (1, 2) AND t.id IS NULL
-             ORDER BY {SORT_TS} DESC LIMIT ?1"
-        ))?;
-        let rows = stmt.query_map([limit as i64], |r| {
-            Ok((r.get::<_, i64>(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+    /// 残った行）を、一覧と同じ並び（新しい撮影日から）で `after` の**次から** `limit` 件。戻り値の最後の行の
+    /// [`TinyCursor`] を次の `after` に渡すと続きが読める。
+    ///
+    /// **毎回先頭から探さない**（PR #366 の codex）。先頭から並べ直して探すと、1回ごとに表全体をなめて
+    /// 並べ直すので、埋め終えるまでの仕事が枚数の2乗で増え（20万行で 10 回 0.9 秒）、一覧と絵の読み取りと
+    /// 共有する読み口を塞いだ。タイムラインの索引（`idx_media_day_sort`）の順に続きから読むので、1周で
+    /// ライブラリを1回なめるだけ
+    pub fn tiny_to_fill(
+        &self,
+        after: Option<TinyCursor>,
+        limit: usize,
+    ) -> Result<Vec<(i64, PathBuf, TinyCursor)>, DbError> {
+        let (d, t, i) = after.map_or((i64::MAX, i64::MAX, i64::MAX), |c| {
+            (c.day_key, c.sort_ts, c.id)
+        });
+        let mut stmt = self.conn.prepare_cached(&tiny_to_fill_sql())?;
+        let rows = stmt.query_map(params![d, t, i, limit as i64], |r| {
+            let id: i64 = r.get(0)?;
+            Ok((
+                id,
+                PathBuf::from(r.get::<_, String>(1)?),
+                TinyCursor {
+                    day_key: r.get(2)?,
+                    sort_ts: r.get(3)?,
+                    id,
+                },
+            ))
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
@@ -8261,7 +8298,7 @@ mod tests {
 
         // c だけ（a は色あり、b は印あり、d はサムネイルが無い）
         let todo: Vec<i64> = db
-            .tiny_to_fill(10)
+            .tiny_to_fill(None, 10)
             .unwrap()
             .into_iter()
             .map(|r| r.0)
@@ -8303,11 +8340,62 @@ mod tests {
         // 読めなかった印は起動ごとに外す（次の起動で1回だけ読み直す）
         assert_eq!(db.forget_unreadable_tiny().unwrap(), 1);
         let todo: Vec<i64> = db
-            .tiny_to_fill(10)
+            .tiny_to_fill(None, 10)
             .unwrap()
             .into_iter()
             .map(|r| r.0)
             .collect();
         assert_eq!(todo, vec![b]);
+    }
+
+    /// 埋め役は続きから読む: 2件ずつ読むと、並び（新しい順）を飛ばさず重ねずに全部を1回ずつ返し、尽きたら空。
+    /// 索引に沿って読むので、並べ直しの一時表を作らない（PR #366 の codex）
+    #[test]
+    fn tiny_to_fill_pages_along_the_timeline_index() {
+        let mut db = Db::open_in_memory().unwrap();
+        let files: Vec<ScannedFile> = (0..5)
+            .map(|i| scanned(&format!("p{i}.jpg"), 100, 1000 + i64::from(i) * 86_400_000))
+            .collect();
+        db.upsert_files(&files).unwrap();
+        for r in db.list_all().unwrap() {
+            db.update_thumb_path(r.id, Path::new(&format!("t/{}.webp", r.id)), 2, Some(1))
+                .unwrap();
+        }
+        let mut seen = Vec::new();
+        let mut after = None;
+        loop {
+            let page = db.tiny_to_fill(after, 2).unwrap();
+            if page.is_empty() {
+                break;
+            }
+            assert!(page.len() <= 2);
+            after = Some(page.last().unwrap().2);
+            seen.extend(page.into_iter().map(|r| r.0));
+        }
+        let mut expect: Vec<(i64, i64)> = db
+            .list_all()
+            .unwrap()
+            .iter()
+            .map(|r| (r.taken_at_ms.unwrap_or(r.mtime_ms), r.id))
+            .collect();
+        expect.sort_by(|a, b| b.cmp(a));
+        assert_eq!(
+            seen,
+            expect.into_iter().map(|e| e.1).collect::<Vec<_>>(),
+            "新しい順に1回ずつ"
+        );
+
+        let plan: Vec<String> = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", tiny_to_fill_sql()))
+            .unwrap()
+            .query_map(params![1, 1, 1, 2], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            !plan.iter().any(|l| l.contains("TEMP B-TREE")),
+            "並べ直しの一時表を作らない: {plan:?}"
+        );
     }
 }
