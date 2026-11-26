@@ -7,7 +7,9 @@
 //!
 //! スケールの原則（plan.md 第3部 段階A）:
 //! - UIへ全件を渡さない。「日付→枚数」のサマリ（[`Db::timeline_summary`]）と
-//!   日単位の取得（[`Db::list_day`]）の2段APIで、可視範囲だけを転送する
+//!   日単位の取得（[`Db::list_day`]）の2段APIで、可視範囲だけを転送する。
+//!   **例外は一覧の軽い索引**（[`Db::search_all`]。並びと地の色に要る欄だけを1枚100バイトほどに
+//!   詰めて渡す）——見えた日を取りに行く読み方は、レールを速く動かすと間に合わなかった（pictkura-dev #76 の spike）
 //! - `day_key`（ローカル日付のYYYYMMDD整数）を書き込み時に維持し、
 //!   `(day_key, 表示時刻, id)` の複合インデックスでサマリも日取得もインデックスだけで返す
 //! - 差分検知は一時テーブル＋外部結合（[`Db::apply_scan`]）。全件をRustのメモリへ読まない
@@ -2125,6 +2127,27 @@ impl Db {
         Ok(out)
     }
 
+    /// 色のある写真すべての 4x4 の色と、そのときの版（一覧の軽い索引に添える。[`Db::tiny_for_days`] の全日版）
+    pub fn tiny_all(&self) -> Result<std::collections::HashMap<i64, (i64, Vec<u8>)>, DbError> {
+        let mut out = std::collections::HashMap::new();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT t.id, m.rev, t.px FROM tiny_px t JOIN media m ON m.id = t.id
+             WHERE length(t.px) = ?1",
+        )?;
+        let rows = stmt.query_map(params![TINY_PX_LEN as i64], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, rev, px) = row?;
+            out.insert(id, (rev, px));
+        }
+        Ok(out)
+    }
+
     /// 1枚の写真の 4x4 の色と、そのときの版（[`Db::tiny_for_days`] の1枚版。サムネイルが出来た知らせに添える）。
     /// 色が無い・「読めなかった」の印なら `None`
     pub fn tiny_of(&self, id: i64) -> Result<Option<(i64, Vec<u8>)>, DbError> {
@@ -3019,6 +3042,30 @@ impl Db {
             "SELECT {MEDIA_COLUMNS} FROM media WHERE {}
              ORDER BY {SORT_TS} DESC, id DESC",
             conds.join(" AND ")
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), Self::row_to_record)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 検索条件に一致する写真を、**全部の日にわたって**一覧に並ぶ順（日の新しい順、日の中は
+    /// [`Db::search_day`] と同じ）で返す。
+    ///
+    /// 一覧の軽い索引（`src-tauri` の `light_index`）の元になる。モジュールの先頭の「UIへ全件を渡さない」の
+    /// 例外で、UI へ渡るのは並びと地の色に要る欄だけ——レコードのまま送る道に使わないこと
+    pub fn search_all(&self, query: &SearchQuery) -> Result<Vec<MediaRecord>, DbError> {
+        let (conds, args) = self.query_filter(query)?;
+        let filter = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {MEDIA_COLUMNS} FROM media {filter}
+             ORDER BY day_key DESC, {SORT_TS} DESC, id DESC"
         ))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), Self::row_to_record)?;
         let mut out = Vec::new();
@@ -8266,6 +8313,63 @@ mod tests {
 
     /// 日の一覧に添えるのは 48 バイトの色だけ（空の「読めなかった」印は渡さない）。埋め役の候補は
     /// サムネイルがあって色が（印も）無い行だけ。読む間にサムネイルが付け替わった行へは書かない
+    #[test]
+    fn search_all_is_the_days_in_timeline_order() {
+        // 一覧の軽い索引は、日ごとの取得を日の新しい順に繋いだものと**同じ並び**でなければならない
+        // （違えば、本番の行が届いたときにタイルが跳ねる。pictkura-dev #76）
+        let mut db = Db::open_in_memory().unwrap();
+        const DAY: i64 = 86_400_000;
+        let base = 1_700_000_000_000;
+        db.upsert_files(&[
+            // c は id が小さいが時刻が遅い: 日の中は時刻で並ぶ（id だけで並べると落ちる）
+            scanned("c.jpg", 1, base + 1000),
+            scanned("a.jpg", 1, base),
+            scanned("b.jpg", 1, base), // a と同じ時刻: id で決まる
+            scanned("d.jpg", 1, base + 2 * DAY),
+            scanned("e.jpg", 1, base - 3 * DAY),
+            scanned("f.mp4", 1, base + 2 * DAY + 5),
+        ])
+        .unwrap();
+        // 絞り込みでも同じ（★を2日にまたがって付ける）
+        let recs = db.list_all().unwrap();
+        for r in recs.iter().filter(|r| {
+            let n = r.path.to_string_lossy();
+            n.ends_with("b.jpg") || n.ends_with("d.jpg")
+        }) {
+            db.set_favorite(r.id, true).unwrap();
+        }
+        for filter in [crate::MediaFilter::All, crate::MediaFilter::Fav] {
+            let q = crate::search::parse_query("", filter);
+            let all: Vec<i64> = db.search_all(&q).unwrap().iter().map(|r| r.id).collect();
+            let mut by_day = Vec::new();
+            for day in db.search_summary(&q).unwrap() {
+                by_day.extend(db.search_day(day.day_key, &q).unwrap().iter().map(|r| r.id));
+            }
+            assert_eq!(all, by_day, "{filter:?}");
+            assert!(!all.is_empty());
+        }
+        let q = crate::search::parse_query("", crate::MediaFilter::All);
+        assert_eq!(db.search_all(&q).unwrap().len(), 6);
+    }
+
+    #[test]
+    fn tiny_all_lists_only_real_colours() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.jpg", 1, 1000), scanned("b.jpg", 1, 1000)])
+            .unwrap();
+        let recs = db.list_all().unwrap();
+        let (a, b) = (recs[0].id, recs[1].id);
+        for (i, x) in [a, b].into_iter().enumerate() {
+            db.update_thumb_path(x, Path::new(&format!("t/{i}.webp")), 2, Some(1))
+                .unwrap();
+        }
+        db.set_tiny(a, &[7; TINY_PX_LEN]).unwrap();
+        db.set_tiny(b, &[]).unwrap(); // 読めなかった印は返さない
+        let all = db.tiny_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[&a], (recs[0].rev, vec![7; TINY_PX_LEN]));
+    }
+
     #[test]
     fn tiny_colours_are_listed_and_filled() {
         let mut db = Db::open_in_memory().unwrap();

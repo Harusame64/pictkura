@@ -50,6 +50,7 @@ pub use browse::{list_dir, list_tree, DirListing, SourceDir, SourceFile, TreeLis
 pub use config::{Config, ConfigError};
 pub use db::{
     Db, DbError, DirSnapshot, MediaRecord, ReadPool, RowVersion, TakenAt, TakenSource, TinyCursor,
+    TINY_PX_LEN,
 };
 pub use export::{export_files, ExportError, ExportMode, ExportOutcome, ExportStats};
 pub use import::{

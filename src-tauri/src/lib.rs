@@ -1522,6 +1522,115 @@ fn item_with_tiny(db: &pictkura_core::Db, record: pictkura_core::MediaRecord) ->
     dto
 }
 
+/// 一覧の軽い索引の1枚の大きさ（バイト）。並びは UI の `lightIndex.ts` と対で、変えるなら両方と [`LIGHT_INDEX_MAGIC`] を
+const LIGHT_RECORD_LEN: usize = 112;
+/// 軽い索引の頭の印（"PKL" と版 1）。UI はこれが合わなければ索引を使わず、今までの読み方に戻る
+const LIGHT_INDEX_MAGIC: u32 = 0x014C_4B50;
+
+/// 一覧の軽い索引を詰める（pictkura-dev #76）。頭に印と件数（u32 ずつ、リトルエンディアン）、続けて1枚
+/// [`LIGHT_RECORD_LEN`] バイト:
+///
+/// | 位置 | 型 | 中身 |
+/// |---|---|---|
+/// | 0 | f64 | id |
+/// | 8 | f64 | taken_at_ms |
+/// | 16 | f64 | mtime_ms |
+/// | 24 | f64 | shot_key（53 ビットに畳んであるので f64 で失わない） |
+/// | 32 | f64 | body_key（同じ） |
+/// | 40 | f64 | rev |
+/// | 48 | i32 | day_key |
+/// | 52 | u32 | width |
+/// | 56 | u32 | height |
+/// | 60 | u8 | thumb_state |
+/// | 61 | u8 | 印: 1 RAW・2 動画・4 撮影日時が本物・8 秒未満まで・16 サムネイルあり・32 ★・64 ⚑ |
+/// | 62 | u8 | 色があるか（1 なら 64.. の 48 バイトが 4x4 の RGB） |
+///
+/// **値は [`MediaItemDto`] から取る**——日の一覧と同じ関数を通すので、縦横比も重ねの鍵も本番の行と一致する
+/// （違えば、本番の行が届いたときにタイルが跳ねる）
+fn pack_light_index(
+    items: &[MediaItemDto],
+    tiny: &std::collections::HashMap<i64, (i64, Vec<u8>)>,
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8 + items.len() * LIGHT_RECORD_LEN);
+    out.extend_from_slice(&LIGHT_INDEX_MAGIC.to_le_bytes());
+    out.extend_from_slice(&(items.len() as u32).to_le_bytes());
+    for d in items {
+        let start = out.len();
+        for v in [
+            d.id,
+            d.taken_at_ms,
+            d.mtime_ms,
+            d.shot_key,
+            d.body_key,
+            d.rev,
+        ] {
+            out.extend_from_slice(&(v as f64).to_le_bytes());
+        }
+        out.extend_from_slice(
+            &(d.day_key.clamp(i32::MIN as i64, i32::MAX as i64) as i32).to_le_bytes(),
+        );
+        for v in [d.width, d.height] {
+            out.extend_from_slice(&(v.clamp(0, u32::MAX as i64) as u32).to_le_bytes());
+        }
+        out.push(d.thumb_state.clamp(0, 255) as u8);
+        let flags = [
+            d.is_raw,
+            d.is_video,
+            d.taken_at_known,
+            d.taken_subsec,
+            d.has_thumb,
+            d.favorite,
+            d.picked,
+        ]
+        .iter()
+        .enumerate()
+        .fold(0u8, |acc, (i, &on)| if on { acc | (1 << i) } else { acc });
+        out.push(flags);
+        // 同じ版の色だけ（回された写真の古い向きの色を付けない。`list_days` と同じ）
+        let px = tiny
+            .get(&d.id)
+            .filter(|(rev, px)| *rev == d.rev && px.len() == pictkura_core::TINY_PX_LEN)
+            .map(|(_, px)| px.as_slice());
+        out.push(px.is_some() as u8);
+        out.push(0);
+        match px {
+            Some(px) => out.extend_from_slice(px),
+            None => out.extend_from_slice(&[0; pictkura_core::TINY_PX_LEN]),
+        }
+        debug_assert_eq!(out.len() - start, LIGHT_RECORD_LEN);
+    }
+    out
+}
+
+/// 一覧の軽い索引（pictkura-dev #76）。検索・絞り込みに一致する写真**全部**の、並びと地の色に要る欄だけを
+/// 一覧の順に返す（形は [`pack_light_index`]）。
+///
+/// 見えた日を [`list_days`] で取りに行く読み方は、レールを速く動かすと1日が1フレームも画面に居ず、
+/// 間に合わなかった（spike）。これを起動時に一度読めば、中身の来ていない日も本番と同じ形の行で並べ、
+/// 地の色を敷ける。止めた日の中身は今までどおり [`list_days`] が運ぶ。
+/// 読むのは DB だけ——サムネイルを作らず、原本（クラウドだけのファイルを含む）を開かない
+#[tauri::command]
+async fn light_index(
+    app: tauri::AppHandle,
+    query: String,
+    filter: pictkura_core::MediaFilter,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let query = pictkura_core::parse_query(&query, filter);
+        let records = state
+            .read_pool
+            .with(|db| db.search_all(&query))
+            .map_err(errs::from_err)?;
+        // 色が読めなくても索引は返す（色は飾り）
+        let tiny = state.read_pool.with(|db| db.tiny_all()).unwrap_or_default();
+        let items: Vec<MediaItemDto> = records.into_iter().map(MediaItemDto::from).collect();
+        Ok(tauri::ipc::Response::new(pack_light_index(&items, &tiny)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
 ///
 /// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
@@ -9120,6 +9229,7 @@ pub fn run() {
             timeline_summary,
             list_day,
             list_days,
+            light_index,
             list_memories,
             get_stats,
             startup_scan_finished,
@@ -9261,6 +9371,75 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 軽い索引の位置は `pack_light_index` の表どおり（UI の `lightIndex.ts` が同じ表で読む）。
+    /// 色は同じ版のものだけ
+    #[test]
+    fn light_index_packs_the_documented_layout() {
+        let mut db = pictkura_core::Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            pictkura_core::ScannedFile {
+                path: "/p/IMG_1.CR3".into(),
+                size: 1,
+                mtime_ms: 1_700_000_000_123,
+            },
+            pictkura_core::ScannedFile {
+                path: "/p/b.jpg".into(),
+                size: 1,
+                mtime_ms: 1_700_000_000_000,
+            },
+        ])
+        .unwrap();
+        let recs = db.list_all().unwrap();
+        let mut items: Vec<super::MediaItemDto> =
+            recs.into_iter().map(super::MediaItemDto::from).collect();
+        items.sort_by_key(|d| d.id);
+        items[0].width = 6000;
+        items[0].height = 4000;
+        items[0].favorite = true;
+        let mut tiny = std::collections::HashMap::new();
+        tiny.insert(
+            items[0].id,
+            (items[0].rev, vec![5u8; pictkura_core::TINY_PX_LEN]),
+        );
+        // 版が違う色は付けない
+        tiny.insert(
+            items[1].id,
+            (items[1].rev + 1, vec![6u8; pictkura_core::TINY_PX_LEN]),
+        );
+
+        let b = super::pack_light_index(&items, &tiny);
+        let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        let f64_at = |o: usize| f64::from_le_bytes(b[o..o + 8].try_into().unwrap());
+        assert_eq!(u32_at(0), super::LIGHT_INDEX_MAGIC);
+        assert_eq!(u32_at(4), 2);
+        assert_eq!(b.len(), 8 + 2 * super::LIGHT_RECORD_LEN);
+        let r = 8;
+        let d = &items[0];
+        assert_eq!(f64_at(r), d.id as f64);
+        assert_eq!(f64_at(r + 8), d.taken_at_ms as f64);
+        assert_eq!(f64_at(r + 16), d.mtime_ms as f64);
+        assert_eq!(f64_at(r + 24), d.shot_key as f64);
+        assert_eq!(f64_at(r + 32), d.body_key as f64);
+        assert_eq!(f64_at(r + 40), d.rev as f64);
+        assert_eq!(
+            i32::from_le_bytes(b[r + 48..r + 52].try_into().unwrap()) as i64,
+            d.day_key
+        );
+        assert_eq!(u32_at(r + 52), 6000);
+        assert_eq!(u32_at(r + 56), 4000);
+        assert_eq!(b[r + 60] as i64, d.thumb_state);
+        assert!(d.is_raw);
+        assert_eq!(b[r + 61] & 1, 1, "RAW");
+        assert_eq!(b[r + 61] & 32, 32, "★");
+        assert_eq!(b[r + 61] & 2, 0, "動画ではない");
+        assert_eq!(b[r + 62], 1);
+        assert_eq!(&b[r + 64..r + 112], &[5u8; 48][..]);
+        let r2 = r + super::LIGHT_RECORD_LEN;
+        assert_eq!(b[r2 + 61] & 1, 0, "JPEG は RAW ではない");
+        assert_eq!(b[r2 + 62], 0, "版の違う色は付けない");
+        assert_eq!(&b[r2 + 64..r2 + 112], &[0u8; 48][..]);
+    }
+
     /// 外で入った写真は、速くまとまって入ったときだけ数える。続く束も数え、間が空いたら終わり
     #[test]
     fn external_photos_count_once_a_burst_is_large_enough() {

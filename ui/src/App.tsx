@@ -27,6 +27,7 @@ import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } fro
 import { GridThumb } from "./GridThumb";
 import { TinyCanvas } from "./TinyCanvas";
 import { rememberTiny, tinyPixels } from "./tinyPx";
+import { changesLightLayout, decodeLightIndex, usableLightDays, type LightIndex } from "./lightIndex";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
@@ -85,6 +86,7 @@ import {
   listCameras,
   listDay,
   listDays,
+  lightIndex,
   openDecoderHelp,
   listDrives,
   scanRootsOnDrives,
@@ -326,6 +328,11 @@ const FAST_FLIP_MS = 400;
 /** 読めなかった日を取り直すまで（ms） */
 const DAY_RETRY_MS = 2000;
 /**
+ * 軽い索引を読み直すまでの待ち（`scheduleLightReload`）。取り込み・撮影日の読み込みの間は骨組みが2秒ごとに
+ * 読み直されるので、そのたびに全件を読まないようまとめる
+ */
+const LIGHT_RELOAD_MS = 5000;
+/**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
  * 勢いよくスクロールすると、絵の届く前のタイルが灰色の四角で並んで見えた（win の実測: 30,000px 飛ぶと 127〜191ms）。
@@ -466,6 +473,11 @@ function decodedBytes(it: MediaItem, measured?: [number, number]): number {
  * 重なっていなければ `[item]`）。**★・⚑・削除・選択は `files` に効く**
  */
 type Cell = {
+  /**
+   * 軽い索引から並べたタイル（pictkura-dev #76）。中身がまだ来ていない日のもので、地の色と絵だけを出す——印・選択・
+   * 押す口は、その日の中身（`listDays`）が届いて本番のタイルに替わってから
+   */
+  light?: boolean;
   item: MediaItem;
   files: MediaItem[];
   /**
@@ -496,14 +508,14 @@ type Cell = {
  */
 type Row =
   | { kind: "header"; dayKey: number; label: string; count: number }
-  | { kind: "cells"; dayKey: number; cells: Cell[]; height: number }
+  | { kind: "cells"; dayKey: number; cells: Cell[]; height: number; light?: boolean }
   | { kind: "placeholder"; dayKey: number; height: number }
   /**
    * 写真の少ない日（その日の写真が1行に収まる日）を、同じ月の中で横に並べた行。日ごとに見出しを上に置く
    * （デザインレビュー: 1枚の日が縦に積まれ、右が大きく空いていた）。`dayKey` は先頭の日
    */
   | { kind: "pack"; dayKey: number; segs: PackSeg[]; height: number };
-type PackSeg = { dayKey: number; label: string; count: number; cells: Cell[]; width: number };
+type PackSeg = { dayKey: number; label: string; count: number; cells: Cell[]; width: number; light?: boolean };
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
@@ -1596,6 +1608,41 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     return moved;
   }, [holdViewer]);
 
+  /**
+   * 一覧の軽い索引（pictkura-dev #76、`lightIndex.ts`）。中身の来ていない日を、仮の行ではなく本番と同じ形の行で
+   * 並べ、地の色を敷く。骨組みを読み直すたびに読む（検索・絞り込みが替われば中身も替わる）
+   */
+  const [light, setLight] = useState<LightIndex | null>(null);
+  const lightRef = useRef<LightIndex | null>(null);
+  lightRef.current = light;
+  const lightTimerRef = useRef<number | null>(null);
+  /** 軽い索引を読む。世代が替わっていたら捨てる。落ちても黙る（索引は飾り——仮の行で今までどおり並ぶ） */
+  const loadLight = useCallback((gen: number) => {
+    lightIndex(queryRef.current, filterRef.current)
+      .then((buf) => {
+        if (generationRef.current !== gen) return;
+        setLight(decodeLightIndex(buf));
+      })
+      .catch(() => {});
+  }, []);
+  /**
+   * 骨組みや差分と合わなくなった索引を読み直す（まとめて数秒に 1 回まで）。合わない日は、読み直すまで仮の行で並ぶ
+   * （`usableLightDays`）
+   */
+  const scheduleLightReload = useCallback(() => {
+    if (lightTimerRef.current != null) return;
+    lightTimerRef.current = window.setTimeout(() => {
+      lightTimerRef.current = null;
+      loadLight(generationRef.current);
+    }, LIGHT_RELOAD_MS);
+  }, [loadLight]);
+  useEffect(
+    () => () => {
+      if (lightTimerRef.current != null) window.clearTimeout(lightTimerRef.current);
+    },
+    [],
+  );
+
   /** 骨組み（サマリ・件数・思い出）を取り直し、日キャッシュを捨てる。
    * 可視範囲の日は placeholder になった瞬間に自動で再取得される。
    *
@@ -1607,6 +1654,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     failedDaysRef.current.clear();
+    // 前の検索・絞り込みの索引は使わない（枚数が偶然合った日に、別の写真が並ぶ）
+    setLight(null);
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1663,6 +1712,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       setSummary(sumR.value);
       setSummaryFor(askedFor);
       setDayItems(new Map());
+      loadLight(gen);
       if (openR.status === "fulfilled") {
         // 始めた後に差分が当たった写真は、差分のほうが新しい
         const moves = new Map(
@@ -1718,7 +1768,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         if (gotSummary) void pruneVanished();
       }
     }
-  }, [pruneVanished, followViewerTo, holdViewer]);
+  }, [pruneVanished, followViewerTo, holdViewer, loadLight]);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
    *
@@ -1745,6 +1795,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     setLoadFailed(false);
     setLoadError(null);
     setStats(st);
+    // 枚数の合わない日が出たら、索引を読み直す（写真が入った・移った。「読み込み中の写真」の束は数が動き続けるので見ない）
+    const li = lightRef.current;
+    if (li && sum.some((d) => d.day_key !== UNREAD_DAY && (li.days.get(d.day_key)?.length ?? 0) !== d.count)) {
+      scheduleLightReload();
+    }
     setDayItems((prev) => {
       if (prev.size === 0) return prev;
       const counts = new Map(sum.map((d) => [d.day_key, d.count]));
@@ -1763,7 +1818,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       }
       return next ?? prev;
     });
-  }, []);
+  }, [scheduleLightReload]);
   const summaryRefreshTimer = useRef<number | null>(null);
   // サムネイル一括生成中はパッチが大量に届くため、骨組みの再取得は2秒デバウンス
   // （最後のパッチの2秒後に必ず1回走り、最終状態には確実に追従する）
@@ -2415,6 +2470,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     listen<MediaItem>("media-updated", (ev) => {
       // サムネイルが出来た知らせは、その写真の 4x4 の色も運ぶ（日の一覧は読み直されない。`tinyPx.ts`）
       rememberTiny(ev.payload.id, ev.payload.rev, ev.payload.tiny);
+      // 回した・撮影日が動いた写真は、索引の形と合わなくなる（`changesLightLayout`）
+      if (changesLightLayout(lightRef.current, ev.payload)) scheduleLightReload();
       patchBuffer.current.push(ev.payload);
       // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
       // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）
@@ -2442,7 +2499,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       // 溜まった差分は捨てずに当てる（待っている空のタイルを起こし損ねない。PR #356 の /code-review）
       flush();
     };
-  }, [applyPatches, gridWaiters]);
+  }, [applyPatches, gridWaiters, scheduleLightReload]);
 
   // 埋め役が前の版のサムネイルに 4x4 の色を埋めた（`tinyPx.ts`）。先に読んで覚えた日は読み直されないので、
   // 届いた色を覚えて一覧を描き直す（PR #366 の codex）。知らせは 64 枚ずつ、多くても 1 秒に 1〜2 回
@@ -3442,6 +3499,24 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
     return out;
   }, [groupedStacks, spreadIds, stackRawJpeg]);
+  /**
+   * 軽い索引で並べる日の重ね（pictkura-dev #76）。**組み方・広げ方は本番（`dayStacks`）と同じ**——違えば、本番の行が
+   * 届いたときにタイルが跳ねる。骨組みと枚数の合う日だけ（`usableLightDays`）
+   */
+  const lightStacks = useMemo(() => {
+    const out = new Map<number, Stack<MediaItem>[]>();
+    if (!light) return out;
+    for (const dayKey of usableLightDays(light.days, summary)) {
+      if (dayKey === UNREAD_DAY) continue;
+      const stacks = stacksOfDay(light.days.get(dayKey) ?? [], {
+        rawJpeg: stackRawJpeg,
+        bursts: stackBursts,
+        burstGapMs,
+      });
+      out.set(dayKey, spreadIds.size === 0 ? stacks : spreadStacks(stacks, spreadIds, !stackRawJpeg));
+    }
+    return out;
+  }, [light, summary, stackRawJpeg, stackBursts, burstGapMs, spreadIds]);
   /** 重ねを広げる（印を押したとき）。`ids` は重ねのファイルぜんぶ */
   const spreadStack = useCallback((ids: readonly number[]) => {
     setSpreadIds((prev) => new Set([...prev, ...ids]));
@@ -3684,10 +3759,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const out: Row[] = [];
 
     /** 重ねの列を、高さ `h` のタイルに起こす（広げた重ねの下線を、同じ行で右隣も同じ重ねのときだけつなぐ） */
-    const toCells = (items: Stack<MediaItem>[], h: number): Cell[] => {
+    const toCells = (items: Stack<MediaItem>[], h: number, light: boolean): Cell[] => {
       const cells = items.map((st): Cell => {
         const frames = st.shots.length;
         return {
+          light,
           item: st.cover.lead,
           files: filesOf(st),
           markFiles: frames > 1 ? st.cover.files : filesOf(st),
@@ -3717,7 +3793,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const fits: DayFit[] = summary.map((day) => {
       // 「読み込み中」の束は、ほかの日と1行に並べない（日付の行ではない）
       if (day.day_key === UNREAD_DAY) return { dayKey: day.day_key, width: null };
-      const stacks = packDays && dayItems.get(day.day_key) ? dayStacks.get(day.day_key) : undefined;
+      // 中身の来ていない日も、索引があれば同じ規則で並べる（並べ方が替わると、中身が届いたときに行が跳ねる）
+      const stacks = !packDays
+        ? undefined
+        : dayItems.get(day.day_key)
+          ? dayStacks.get(day.day_key)
+          : lightStacks.get(day.day_key);
       if (!stacks || stacks.length === 0) return { dayKey: day.day_key, width: null };
       const photosWidth =
         stacks.reduce((w, st) => w + Math.floor(aspectOf(st.cover.lead) * target), 0) +
@@ -3734,12 +3815,18 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           dayKey: summary[unit[0]].day_key,
           segs: unit.map((i): PackSeg => {
             const day = summary[i];
+            const light = !dayItems.get(day.day_key);
             return {
               dayKey: day.day_key,
               label: formatDayKey(day.day_key),
               count: day.count,
-              cells: toCells(dayStacks.get(day.day_key) ?? [], target),
+              cells: toCells(
+                (light ? lightStacks.get(day.day_key) : dayStacks.get(day.day_key)) ?? [],
+                target,
+                light,
+              ),
               width: fits[i].width ?? 0,
+              light,
             };
           }),
           height: HEADER_HEIGHT + Math.round(target) + GAP,
@@ -3749,7 +3836,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       const day = summary[unit[0]];
       const label = formatDayKey(day.day_key);
       const items = dayItems.get(day.day_key);
-      const stacks = items ? (dayStacks.get(day.day_key) ?? []) : null;
+      // 中身がまだ無い日は、軽い索引で並べる（pictkura-dev #76）。索引も無ければ仮の行
+      const light = !items;
+      const stacks = items ? (dayStacks.get(day.day_key) ?? []) : (lightStacks.get(day.day_key) ?? null);
       out.push({
         kind: "header",
         dayKey: day.day_key,
@@ -3784,8 +3873,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         out.push({
           kind: "cells",
           dayKey: day.day_key,
-          cells: toCells(rowItems, h),
+          cells: toCells(rowItems, h, light),
           height: Math.round(h) + GAP,
+          light,
         });
         rowItems = [];
         sumAspect = 0;
@@ -3801,7 +3891,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       flushRow(false); // 端数の最終行は基準高さのまま（右側は空ける）
     }
     return out;
-  }, [summary, dayItems, dayStacks, cellSize, viewportWidth, packDays]);
+  }, [summary, dayItems, dayStacks, lightStacks, cellSize, viewportWidth, packDays]);
 
   /**
    * 各行の上端オフセットの累積（末尾は総高さ）。
@@ -3966,6 +4056,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       // 読み直す、を繰り返した。/code-review）
       if (row.kind === "pack") for (const seg of row.segs) visible.add(seg.dayKey);
       if (row.kind === "placeholder") wanted.push(row.dayKey);
+      // 索引で並べた日も、中身を取りに行く（届けば本番のタイルに替わる）
+      if (row.kind === "cells" && row.light) wanted.push(row.dayKey);
+      if (row.kind === "pack") for (const seg of row.segs) if (seg.light) wanted.push(seg.dayKey);
     }
     visibleDaysRef.current = visible;
     // 見えている「読み込み中の写真」の束の枚数がずれていたら、出したまま取り直す（上の `refreshSummary` で捨てない
@@ -4199,8 +4292,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
     for (const vr of virtualItems) {
       const row = rows[vr.index];
-      if (row?.kind === "cells") for (const cell of row.cells) want(cell.item);
-      else if (row?.kind === "pack") for (const seg of row.segs) for (const cell of seg.cells) want(cell.item);
+      // 索引で並べたタイルは頼まない（中身が届いて本番のタイルになってから。今までと同じ時に頼む——速く動かす間に
+      // 通り過ぎた写真の生成を積まない）
+      if (row?.kind === "cells") {
+        for (const cell of row.cells) if (!cell.light) want(cell.item);
+      } else if (row?.kind === "pack") {
+        for (const seg of row.segs) for (const cell of seg.cells) if (!cell.light) want(cell.item);
+      }
     }
     return { ids, days };
   }, [virtualItems, rows, memories, view, filtering, bandAskableIds, patchesMoveDays]);
@@ -9292,6 +9390,38 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                         </div>
                   );
                   const tile = (cell: Cell, dayKey: number) => {
+                    // 軽い索引から並べたタイル（pictkura-dev #76）: 地の色と、サムネイルがもうある写真の絵だけ。原本は
+                    // 読まない（クラウドにしか無いファイルを落とさない）し、生成も頼まない。中身が届けば下の本番の
+                    // タイルに替わる——同じ鍵・同じ URL なので、絵は出たまま
+                    if (cell.light) {
+                      const ready = cell.item.thumb_state === 1 || cell.item.thumb_state === 2;
+                      return (
+                        <div
+                          key={cell.item.id}
+                          className={"cell-wrap" + (cell.spread ? " spread" + (cell.spread.join ? " spread-join" : "") : "")}
+                          style={{ width: cell.w, height: cell.h }}
+                        >
+                          <TinyCanvas
+                            px={tinyPixels(cell.item.id, cell.item.rev) ?? light?.tiny.get(cell.item.id)}
+                          />
+                          {ready && (
+                            <GridThumb
+                              url={thumbSrc(cell.item)}
+                              ready
+                              // 列に積んでいないので、去るときに降ろさない（`quick` は降ろす印。一気送りで何百回の空振りになる）
+                              quick={false}
+                              label=""
+                              loader={gridLoader}
+                              recent={recentThumbs}
+                              waiters={gridWaiters}
+                              id={cell.item.id}
+                              day={patchesMoveDays ? cell.item.day_key : undefined}
+                              onDone={revealThumb}
+                            />
+                          )}
+                        </div>
+                      );
+                    }
                             // 重ねのタイル（dev #32）: 印も選択も**組のどれか**で見せる
                             const stacked = cell.files.length > 1;
                             const burst = cell.frames > 1;
