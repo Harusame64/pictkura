@@ -101,6 +101,7 @@ import {
   appDisplayNames,
   appKeys,
   isMac,
+  isWindows,
   titleBarDoubleClick,
   osAppsFor,
   openWithOs,
@@ -6140,7 +6141,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
     //頁の全画面が無い WebView（macOS 12.3 より前、または頁が設定より先に建った起動）では、ウィンドウの全画面で
     //同じ見え方にする。`requestFullscreen` が無いと、呼んだ時点で投げて黙って何も起きなかった
-    if (!document.fullscreenEnabled) {
+    //
+    //**Windows ではいつもウィンドウの全画面にする**（#295）。頁の全画面（WebView2 の全画面の仕組み）の中では、一部の
+    //AMD の機械で、押せる物の上にカーソルが乗る・文字を選び始めると、その場でカーソルが止まった（1.0.2 でも 1.1.0
+    //でも 5 回中 5 回）。カーソルの形・ホバーの見た目・吹き出しを全部止めても止まり、ウィンドウの全画面（Tauri）・
+    //枠の無い画面ぴったりの窓・最大化では 0 回だった（win の実機、2026-11-26。画面への出し方はどれも同じ
+    //Independent Flip——分かれ目は頁の全画面の仕組みに入るかどうか）。見え方は同じ（ビューアは窓いっぱい）。
+    //Esc はビューアのキーの受け手が先に全画面を抜ける（下の Escape）
+    if (!document.fullscreenEnabled || isWindows) {
       setWindowFullscreen(true);
       return;
     }
