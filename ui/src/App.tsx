@@ -1213,7 +1213,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const [pointerIdle, setPointerIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   /**
-   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
+   * ウィンドウの全画面。Windows ではビューアの全画面はいつもこれ（枠を外して画面ぴったり。`win_fullscreen.rs`、#295）。
+   * ほかの OS では、動画の再生バーの全画面ボタンから入ったときと、頁の全画面が無い WebView で使う（dev #75）。
    * 頁の全画面（`isFullscreen`）とは別に持ち、⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける
    */
   /** mac の、窓の題の帯を消した見た目か（main.tsx がビルドの OS から付ける） */
@@ -6142,6 +6143,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       setWindowFullscreen(false);
       return;
     }
+    //頁の全画面に居れば、まずそこから抜ける（Windows でも、動画の再生バーのボタンが頁の全画面に入れて、ウィンドウの
+    //全画面へ移し損ねたとき。下の Windows の分岐より先に見ないと、⛶ が「抜ける」の絵のまま抜けられない。/code-review）
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch((e) => fail(errText(e)));
+      return;
+    }
     //頁の全画面が無い WebView（macOS 12.3 より前、または頁が設定より先に建った起動）では、ウィンドウの全画面で
     //同じ見え方にする。`requestFullscreen` が無いと、呼んだ時点で投げて黙って何も起きなかった
     //
@@ -6153,11 +6160,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       setWindowFullscreen(true);
       return;
     }
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch((e) => fail(errText(e)));
-    } else {
-      document.documentElement.requestFullscreen().catch((e) => fail(errText(e)));
-    }
+    document.documentElement.requestFullscreen().catch((e) => fail(errText(e)));
   }, [fail, setWindowFullscreen]);
   useEffect(() => {
     const onChange = () => {
@@ -6457,7 +6460,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           return;
         }
       }
-      //ウィンドウの全画面（動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
+      //ウィンドウの全画面（Windows のビューアの全画面と、動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
       //（頁の全画面は WebView が Esc を先に取って抜ける。2 回目で閉じる）
       if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);
       else if (e.key === "Escape") requestCloseViewer();
