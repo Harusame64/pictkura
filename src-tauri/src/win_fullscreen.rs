@@ -14,14 +14,15 @@
 
 use std::sync::Mutex;
 
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, GetWindowPlacement, IsZoomed, SetWindowLongPtrW, SetWindowPlacement,
-    SetWindowPos, ShowWindow, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_RESTORE, WINDOWPLACEMENT, WS_CAPTION, WS_MAXIMIZE, WS_THICKFRAME,
+    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsZoomed, SetWindowLongPtrW,
+    SetWindowPlacement, SetWindowPos, ShowWindow, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_RESTORE, WINDOWPLACEMENT, WS_CAPTION, WS_MAXIMIZE,
+    WS_THICKFRAME,
 };
 
 /// 入る前の窓の型と置き場所。`Some` の間が全画面
@@ -44,10 +45,61 @@ pub fn is_on() -> bool {
     saved().is_some()
 }
 
+/// 窓が居る画面の矩形
+fn monitor_rect(hwnd: HWND) -> windows::core::Result<RECT> {
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return Err(windows::core::Error::from_win32());
+        }
+        Ok(info.rcMonitor)
+    }
+}
+
+/// 窓を矩形に合わせる（枠の付け外しを反映させる `SWP_FRAMECHANGED` も添える）
+fn fit(hwnd: HWND, r: RECT) -> windows::core::Result<()> {
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            r.left,
+            r.top,
+            r.right - r.left,
+            r.bottom - r.top,
+            SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    }
+}
+
+/// 全画面の間に窓が動いた・大きさが変わったら、いま居る画面に合わせ直す（Win+Shift+矢印で大きさの違う画面へ移すと、
+/// 前の画面の大きさのまま残った。tao の全画面なら tao が合わせ直すが、ここは tao から見れば普通の窓。PR #368 の codex）。
+/// 合っていれば何もしない（合わせた後の知らせで回り続けない）
+pub fn refit(hwnd: HWND) {
+    if !is_on() {
+        return;
+    }
+    let Ok(want) = monitor_rect(hwnd) else {
+        return;
+    };
+    let mut now = RECT::default();
+    if unsafe { GetWindowRect(hwnd, &mut now) }.is_err() {
+        return;
+    }
+    if now != want {
+        let _ = fit(hwnd, want);
+    }
+}
+
 /// 全画面に入る。もう入っていれば何もしない
+///
+/// **鍵（`SAVED`）は窓に触る間は握らない**: `ShowWindow`・`SetWindowPos` は同じスレッドで大きさの知らせを送り、
+/// それが [`refit`] を呼んで鍵を取りに来る（握ったままだと、その場で止まる）
 pub fn enter(hwnd: HWND) -> windows::core::Result<()> {
-    let mut held = saved();
-    if held.is_some() {
+    if is_on() {
         return Ok(());
     }
     unsafe {
@@ -57,39 +109,27 @@ pub fn enter(hwnd: HWND) -> windows::core::Result<()> {
             ..Default::default()
         };
         GetWindowPlacement(hwnd, &mut placement)?;
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return Err(windows::core::Error::from_win32());
-        }
+        // 画面は、いま見えている窓（最大化ならその画面）で決める
+        let r = monitor_rect(hwnd)?;
         // 最大化のままだと、広げた後も最大化の印が残り、戻すときの置き場所が狂う。win の実測（③b・③c）と同じく
-        // 先に元の大きさへ戻してから枠を外す
+        // 先に元の大きさへ戻してから枠を外す（この間は全画面の印が無いので、`refit` は何もしない）
         if IsZoomed(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
         }
         let frame = (WS_CAPTION.0 | WS_THICKFRAME.0) as isize;
         SetWindowLongPtrW(hwnd, GWL_STYLE, style & !frame);
-        let r = info.rcMonitor;
-        SetWindowPos(
-            hwnd,
-            None,
-            r.left,
-            r.top,
-            r.right - r.left,
-            r.bottom - r.top,
-            SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE,
-        )?;
-        *held = Some(Saved { style, placement });
+        // 印を立ててから広げる（広げた知らせで `refit` が走っても、合っているので何もしない）
+        *saved() = Some(Saved { style, placement });
+        fit(hwnd, r)?;
     }
     Ok(())
 }
 
 /// 全画面から抜ける（入る前の型と置き場所へ）。入っていなければ何もしない
 pub fn exit(hwnd: HWND) -> windows::core::Result<()> {
-    let Some(s) = saved().take() else {
+    // 鍵はこの文の終わりで放す（下で窓に触ると、大きさの知らせが `refit` を呼ぶ）
+    let taken = saved().take();
+    let Some(s) = taken else {
         return Ok(());
     };
     unsafe {

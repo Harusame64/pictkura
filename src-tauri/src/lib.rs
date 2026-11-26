@@ -8570,6 +8570,23 @@ pub fn run() {
             // **macOS のビューアの全画面（⛶・F11・動画の再生バーのボタン）を効かせる**（`mac_fullscreen.rs`）
             #[cfg(target_os = "macos")]
             mac_fullscreen::install(app.handle());
+            // Windows のビューアの全画面（`win_fullscreen.rs`）: 全画面の間に窓が別の画面へ移ったら、その画面に合わせ直す
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(hwnd) = window.hwnd() {
+                    let hwnd = hwnd.0 as isize;
+                    window.on_window_event(move |event| {
+                        if matches!(
+                            event,
+                            tauri::WindowEvent::Moved(_)
+                                | tauri::WindowEvent::Resized(_)
+                                | tauri::WindowEvent::ScaleFactorChanged { .. }
+                        ) {
+                            win_fullscreen::refit(windows::Win32::Foundation::HWND(hwnd as _));
+                        }
+                    });
+                }
+            }
 
             // **メニューバーを、まず当て推量の言語で掛ける**（macOSだけ・Issue #14）。
             // 控えの言語で AppKit を上書きした起動では、ここで読む言語はその控えになる
