@@ -1808,6 +1808,20 @@ pub fn drain_thumb_trash(
     Ok(removed)
 }
 
+/// サムネイルの絵を 4x4 に縮めた色（RGB、上の行から [`crate::db::TINY_PX_LEN`] バイト）。一覧は絵が届くまで
+/// タイルの地にこれを引き伸ばして敷く（pictkura-dev #76）。**縦横比は捨てる**——タイルは写真と同じ縦横比なので、
+/// 4x4 をタイルいっぱいに伸ばせば元の配置に戻る
+pub fn tiny_px(rgb: &image::RgbImage) -> Vec<u8> {
+    image::imageops::thumbnail(rgb, 4, 4).into_raw()
+}
+
+/// 置いてあるサムネイルのファイルから [`tiny_px`] を作る（前の版で作ったサムネイルを埋める掃除役が使う）。
+/// 読めなければ `None`
+pub fn tiny_px_of_file(path: &Path) -> Option<Vec<u8>> {
+    let img = image::open(path).ok()?;
+    Some(tiny_px(&crate::resize::flatten_onto_white(&img)))
+}
+
 /// 一時ファイルに書いたサムネイルを、**行がまだ同じ版のときだけ**本当の名前へ付け替えて記録する（F1）。
 ///
 /// 以前は本当の名前へ直接書いてから行を更新していた。作業の途中で行が新しくなる（回した・外で書き換えた）と、
@@ -1822,6 +1836,7 @@ fn publish_thumb(
     final_path: &Path,
     thumb_state: i64,
     thumb_bytes: Option<i64>,
+    tiny: &[u8],
 ) -> Result<bool, ThumbError> {
     // **記録を書いてから付け替える**。付け替えの後で記録が失敗すると、取り消された行の裏で本当の名前の
     // ファイルだけが差し替わり、同じ URL の中身が変わる（PR のゲート2）。逆なら付け替えの失敗で記録も取り消せる。
@@ -1832,6 +1847,8 @@ fn publish_thumb(
     // （PR #208 の codex。版ごとの名前にはしない）
     let published = db.guarded(id, record.version(), |db| {
         db.update_thumb_path(id, final_path, thumb_state, thumb_bytes)?;
+        // 4x4 の色はサムネイルと同じ書き込みで（付け替えの引き金が前の色を消した後に置く）
+        db.set_tiny(id, tiny)?;
         std::fs::rename(tmp, final_path)?;
         Ok::<_, ThumbError>(())
     });
@@ -1963,6 +1980,7 @@ fn process_video(
         &webp_path,
         2,
         Some(encoded.len() as i64),
+        &tiny_px(&rgb),
     )? {
         return Ok(ThumbOutcome::Stale);
     }
@@ -2240,7 +2258,7 @@ pub fn process_one_job(
             let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
             let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
             // 即席（state=1）なので、可視になったら主画像から作り直す
-            if !publish_thumb(db, id, &record, &tmp, &webp_path, 1, None)? {
+            if !publish_thumb(db, id, &record, &tmp, &webp_path, 1, None, &tiny_px(&rgb))? {
                 return Ok(ThumbOutcome::Stale);
             }
             return Ok(ThumbOutcome::Provisional);
@@ -2254,6 +2272,11 @@ pub fn process_one_job(
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
                 ensure_parent(&jpg_path)?;
+                // 4x4 に縮めてから回す（回した後の向きで並べる。4x4 を回すだけなので安い）
+                let tiny = tiny_px(
+                    &apply_orientation(embedded.thumbnail_exact(4, 4), exif_data.orientation)
+                        .to_rgb8(),
+                );
                 let tmp = write_temp_thumb(&jpg_path, |p| {
                     if exif_data.orientation == 1 {
                         std::fs::write(p, bytes)?;
@@ -2268,7 +2291,7 @@ pub fn process_one_job(
                     }
                     Ok(())
                 })?;
-                if !publish_thumb(db, id, &record, &tmp, &jpg_path, 1, None)? {
+                if !publish_thumb(db, id, &record, &tmp, &jpg_path, 1, None, &tiny)? {
                     return Ok(ThumbOutcome::Stale);
                 }
                 return Ok(ThumbOutcome::Provisional);
@@ -2321,6 +2344,7 @@ pub fn process_one_job(
         &webp_path,
         2,
         Some(encoded.len() as i64),
+        &tiny_px(&rgb),
     )? {
         return Ok(ThumbOutcome::Stale);
     }
@@ -3639,23 +3663,46 @@ mod tests {
         std::fs::create_dir_all(final_path.parent().unwrap()).unwrap();
         let tmp = temp_thumb_path(&final_path);
         std::fs::write(&tmp, b"old picture").unwrap();
-        assert!(!publish_thumb(&mut db, id, &before, &tmp, &final_path, 2, Some(11)).unwrap());
+        assert!(!publish_thumb(
+            &mut db,
+            id,
+            &before,
+            &tmp,
+            &final_path,
+            2,
+            Some(11),
+            &[1; 48]
+        )
+        .unwrap());
         assert!(!tmp.exists(), "一時ファイルは消す");
         assert!(!final_path.exists(), "古い絵を本当の名前に置かない");
         assert!(
             db.get_by_id(id).unwrap().unwrap().thumb_path.is_none(),
             "行は書き換えない"
         );
+        assert!(
+            db.tiny_for_days(&[db.get_by_id(id).unwrap().unwrap().day_key])
+                .unwrap()
+                .is_empty(),
+            "4x4 の色も書かない"
+        );
 
         // 新しい行で作り直した作業は付け替える
         let now = db.get_by_id(id).unwrap().unwrap();
         let tmp = temp_thumb_path(&final_path);
         std::fs::write(&tmp, b"new picture").unwrap();
-        assert!(publish_thumb(&mut db, id, &now, &tmp, &final_path, 2, Some(11)).unwrap());
+        assert!(
+            publish_thumb(&mut db, id, &now, &tmp, &final_path, 2, Some(11), &[1; 48]).unwrap()
+        );
         assert_eq!(std::fs::read(&final_path).unwrap(), b"new picture");
         let row = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(row.thumb_path.as_deref(), Some(final_path.as_path()));
         assert_eq!(row.thumb_state, 2);
+        // 4x4 の色もサムネイルと同じ書き込みで入る（古い版の作業は入れていない）
+        assert_eq!(
+            db.tiny_for_days(&[row.day_key]).unwrap().get(&id),
+            Some(&vec![1u8; 48])
+        );
     }
 
     #[test]
@@ -6598,5 +6645,45 @@ mod tests {
         let data = read_exif_meta(&path);
         assert!(data.taken_at_ms.is_some(), "プレビューのEXIFから日付を拾う");
         assert!(data.thumbnail.is_none(), "それでも絵は残さない");
+    }
+}
+
+#[cfg(test)]
+mod tiny_tests {
+    /// 4x4 は上の行から RGB で並び、色の場所を保つ（左半分が赤、右半分が青）
+    #[test]
+    fn tiny_px_keeps_where_the_colours_are() {
+        let img = image::RgbImage::from_fn(64, 48, |x, _| {
+            if x < 32 {
+                image::Rgb([255, 0, 0])
+            } else {
+                image::Rgb([0, 0, 255])
+            }
+        });
+        let px = super::tiny_px(&img);
+        assert_eq!(px.len(), crate::db::TINY_PX_LEN);
+        for row in 0..4 {
+            assert_eq!(&px[row * 12..row * 12 + 3], &[255, 0, 0], "行 {row} の左端");
+            assert_eq!(
+                &px[row * 12 + 9..row * 12 + 12],
+                &[0, 0, 255],
+                "行 {row} の右端"
+            );
+        }
+    }
+
+    /// ファイルから作っても同じ（埋め役の道）。読めないファイルは None
+    #[test]
+    fn tiny_px_of_file_reads_a_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.png");
+        image::RgbImage::from_pixel(16, 16, image::Rgb([10, 20, 30]))
+            .save(&p)
+            .unwrap();
+        assert_eq!(
+            super::tiny_px_of_file(&p).unwrap(),
+            [10u8, 20, 30].repeat(16)
+        );
+        assert!(super::tiny_px_of_file(&dir.path().join("none.webp")).is_none());
     }
 }

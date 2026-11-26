@@ -33,6 +33,9 @@ pub enum DbError {
     Sqlite(#[from] rusqlite::Error),
 }
 
+/// 写真ごとの 4x4 の色の大きさ（RGB、上の行から。pictkura-dev #76）
+pub const TINY_PX_LEN: usize = 48;
+
 /// `media` テーブルの1行。
 #[derive(Debug, Clone, PartialEq)]
 pub struct MediaRecord {
@@ -917,6 +920,30 @@ impl Db {
                 AND (new.thumb_path IS NULL OR new.thumb_path <> old.thumb_path) BEGIN
                 INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
                 VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+            END;
+            "#,
+        )?;
+        // 写真ごとの 4x4 の色（一覧が、絵の届く前のタイルに敷く。pictkura-dev #76）。**サムネイルの付属物**として
+        // 扱う: サムネイルを付け替えるのと同じ書き込みで入れ（`thumbs::publish_thumb`）、サムネイルのパスが
+        // 変わった・外れた、中身の版（`rev`）が進んだ、行が消えたときは引き金で消す。消えた行は、残った
+        // サムネイルから掃除役が埋め直す（[`Db::tiny_to_fill`]）。空の `px` は「読めなかった」の印で、
+        // 埋め直しの対象から外すためだけに置く（一覧には渡さない）
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS tiny_px (
+                id INTEGER PRIMARY KEY,
+                px BLOB NOT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS tiny_px_ad AFTER DELETE ON media BEGIN
+                DELETE FROM tiny_px WHERE id = old.id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tiny_px_au_thumb AFTER UPDATE OF thumb_path ON media
+            WHEN new.thumb_path IS NOT old.thumb_path BEGIN
+                DELETE FROM tiny_px WHERE id = old.id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tiny_px_au_rev AFTER UPDATE OF rev ON media
+            WHEN new.rev IS NOT old.rev BEGIN
+                DELETE FROM tiny_px WHERE id = old.id;
             END;
             "#,
         )?;
@@ -2036,6 +2063,68 @@ impl Db {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// 写真の 4x4 の色（[`TINY_PX_LEN`] バイト。空は「読めなかった」の印）を置く。サムネイルを付け替えた
+    /// 後に呼ぶ——付け替え（`thumb_path` の更新）は引き金で前の色を消すので、順番が逆だと消える
+    pub fn set_tiny(&self, id: i64, px: &[u8]) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO tiny_px (id, px) VALUES (?1, ?2)",
+            params![id, px],
+        )?;
+        Ok(())
+    }
+
+    /// 日ごとの写真の 4x4 の色（id → [`TINY_PX_LEN`] バイト）。「読めなかった」の印は返さない
+    pub fn tiny_for_days(
+        &self,
+        day_keys: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<u8>>, DbError> {
+        let mut out = std::collections::HashMap::new();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT t.id, t.px FROM media m JOIN tiny_px t ON t.id = m.id
+             WHERE m.day_key = ?1 AND length(t.px) = ?2",
+        )?;
+        for &day in day_keys {
+            let rows = stmt.query_map(params![day, TINY_PX_LEN as i64], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+            })?;
+            for row in rows {
+                let (id, px) = row?;
+                out.insert(id, px);
+            }
+        }
+        Ok(out)
+    }
+
+    /// サムネイルはあるのに 4x4 の色がまだ無い行（前の版で作ったサムネイル、版が進んだ後もサムネイルが
+    /// 残った行）。新しい撮影日から `limit` 件——掃除役が埋める順で、一覧の先頭から先に揃う
+    pub fn tiny_to_fill(&self, limit: usize) -> Result<Vec<(i64, PathBuf)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT m.id, m.thumb_path FROM media m LEFT JOIN tiny_px t ON t.id = m.id
+             WHERE m.thumb_path IS NOT NULL AND m.thumb_state IN (1, 2) AND t.id IS NULL
+             ORDER BY {SORT_TS} DESC LIMIT ?1"
+        ))?;
+        let rows = stmt.query_map([limit as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 埋めた色を置く。**読んだときと同じサムネイルのままの行だけ**（読む間に付け替わった行へ古い色を書かない）
+    pub fn fill_tiny(&mut self, id: i64, thumb_path: &Path, px: &[u8]) -> Result<bool, DbError> {
+        let tx = self.write_tx()?;
+        let same = tx
+            .prepare_cached("SELECT 1 FROM media WHERE id = ?1 AND thumb_path = ?2")?
+            .exists(params![id, thumb_path.to_string_lossy()])?;
+        if same {
+            tx.execute(
+                "INSERT OR REPLACE INTO tiny_px (id, px) VALUES (?1, ?2)",
+                params![id, px],
+            )?;
+        }
+        tx.commit()?;
+        Ok(same)
     }
 
     /// 高品質サムネイルの合計ディスク使用量（バイト）。部分インデックスで返る。
@@ -8026,5 +8115,119 @@ mod tests {
             .unwrap();
         assert_eq!(db.camera_id_of_media(id).unwrap(), Some(CAMERA_NONE));
         assert!(search_names(&db, "camera:iPhone").is_empty());
+    }
+
+    /// 4x4 の色はサムネイルの付属物: パスが変わる・外れる、版が進む、行が消えると引き金で消える。
+    /// 同じパスのまま書き直しただけ（版も同じ）なら残る
+    #[test]
+    fn tiny_colours_follow_the_thumbnail() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.jpg", 100, 1000), scanned("b.jpg", 100, 1000)])
+            .unwrap();
+        let id_of = |db: &Db, name: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.to_string_lossy().ends_with(name))
+                .unwrap()
+                .id
+        };
+        let (a, b) = (id_of(&db, "a.jpg"), id_of(&db, "b.jpg"));
+        let has = |db: &Db, id: i64| {
+            db.conn
+                .prepare("SELECT 1 FROM tiny_px WHERE id = ?1")
+                .unwrap()
+                .exists([id])
+                .unwrap()
+        };
+        let put = |db: &mut Db, id: i64, path: &str| {
+            db.update_thumb_path(id, Path::new(path), 2, Some(1))
+                .unwrap();
+            db.set_tiny(id, &[7; TINY_PX_LEN]).unwrap();
+        };
+
+        put(&mut db, a, "t/a.webp");
+        put(&mut db, a, "t/a.webp");
+        assert!(has(&db, a), "同じパスで書き直しただけなら残る");
+
+        db.update_thumb_path(a, Path::new("t/a2.webp"), 2, Some(1))
+            .unwrap();
+        assert!(!has(&db, a), "パスが変わったら消える");
+
+        put(&mut db, a, "t/a2.webp");
+        db.conn
+            .execute("UPDATE media SET thumb_path = NULL WHERE id = ?1", [a])
+            .unwrap();
+        assert!(!has(&db, a), "サムネイルが外れたら消える");
+
+        put(&mut db, a, "t/a3.webp");
+        db.conn
+            .execute("UPDATE media SET rev = rev + 1 WHERE id = ?1", [a])
+            .unwrap();
+        assert!(
+            !has(&db, a),
+            "版が進んだら消える（回した写真に古い向きの色を出さない）"
+        );
+
+        put(&mut db, b, "t/b.webp");
+        db.remove_paths(&[PathBuf::from("b.jpg")]).unwrap();
+        assert_eq!(db.list_all().unwrap().len(), 1, "行は消えた");
+        assert!(!has(&db, b), "行が消えたら消える");
+    }
+
+    /// 日の一覧に添えるのは 48 バイトの色だけ（空の「読めなかった」印は渡さない）。埋め役の候補は
+    /// サムネイルがあって色が（印も）無い行だけ。読む間にサムネイルが付け替わった行へは書かない
+    #[test]
+    fn tiny_colours_are_listed_and_filled() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.jpg", 100, 1000),
+            scanned("b.jpg", 100, 1000),
+            scanned("c.jpg", 100, 1000),
+            scanned("d.jpg", 100, 1000),
+        ])
+        .unwrap();
+        let recs = db.list_all().unwrap();
+        let id = |name: &str| {
+            recs.iter()
+                .find(|r| r.path.to_string_lossy().ends_with(name))
+                .unwrap()
+                .id
+        };
+        let day = recs[0].day_key;
+        let (a, b, c, d) = (id("a.jpg"), id("b.jpg"), id("c.jpg"), id("d.jpg"));
+        for (i, x) in [a, b, c].into_iter().enumerate() {
+            db.update_thumb_path(x, Path::new(&format!("t/{i}.webp")), 2, Some(1))
+                .unwrap();
+        }
+        db.set_tiny(a, &[9; TINY_PX_LEN]).unwrap();
+        db.set_tiny(b, &[]).unwrap(); // 読めなかった印
+
+        let listed = db.tiny_for_days(&[day]).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[&a], vec![9; TINY_PX_LEN]);
+
+        // c だけ（a は色あり、b は印あり、d はサムネイルが無い）
+        let todo: Vec<i64> = db
+            .tiny_to_fill(10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.0)
+            .collect();
+        assert_eq!(todo, vec![c]);
+        let _ = d;
+
+        // 読んだ後にサムネイルが付け替わった: 書かない
+        db.update_thumb_path(c, Path::new("t/c-new.webp"), 2, Some(1))
+            .unwrap();
+        assert!(!db
+            .fill_tiny(c, Path::new("t/2.webp"), &[3; TINY_PX_LEN])
+            .unwrap());
+        assert!(!db.tiny_for_days(&[day]).unwrap().contains_key(&c));
+        // 今のサムネイルなら書く
+        assert!(db
+            .fill_tiny(c, Path::new("t/c-new.webp"), &[3; TINY_PX_LEN])
+            .unwrap());
+        assert_eq!(db.tiny_for_days(&[day]).unwrap()[&c], vec![3; TINY_PX_LEN]);
     }
 }

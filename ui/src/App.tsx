@@ -1,5 +1,6 @@
 // **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
+import { TinyCanvas } from "./TinyCanvas";
 import {
   laterKey,
   mergeMissing,
@@ -9311,6 +9312,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 });
                               }}
                             >
+                              {/* 絵が届くまでの地: その写真の 4x4 の色をぼかして敷く（pictkura-dev #76） */}
+                              <TinyCanvas id={cell.item.id} rev={cell.item.rev} />
                               <GridThumb
                                 // サムネイルがあればすぐ読む。まだ無い写真（原本を読む）は列で読む（`gridThumbs.ts`。同時に4枚、
                                 // 見えているものから、外れたら捨てる）

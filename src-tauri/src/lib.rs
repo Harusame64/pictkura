@@ -868,6 +868,10 @@ struct MediaItemDto {
     /// `taken_at_ms` が**本物の撮影日時**か（偽なら mtime で埋めた値）。一覧は、撮影日時が
     /// 読めた同士でしか RAW+JPEG を重ねない——mtime が偶然同じ別の写真を組にしない（PRのcodex）
     taken_at_known: bool,
+    /// 写真の 4x4 の色（RGB を16進で96文字、上の行から）。一覧は絵が届くまでタイルの地に敷く（pictkura-dev #76）。
+    /// **日の一覧（[`list_days`]）だけが入れる**——ほかの道（`media-updated` など）は null で、UI は id と版で
+    /// 覚えた色を使い続ける
+    tiny: Option<String>,
     /// `taken_at_ms` が秒未満まで分かっているか（dev #32。連写は間隔で切るので、
     /// 秒までしか分からない写真は束ねない）
     taken_subsec: bool,
@@ -906,6 +910,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             is_raw: pictkura_core::raw::is_raw_path(&r.path),
             // 更新日時で埋めた値は「分かっていない」（F2、dev #44）。組・連写はこれで決まる
             taken_at_known: r.taken_at_is_real(),
+            tiny: None,
             taken_subsec: r.taken_subsec == Some(true),
             body_key: pictkura_core::burst::body_key(r.camera_id, r.body_serial.as_deref()),
             is_jpeg: pictkura_core::jpeg::is_jpeg_path(&r.path),
@@ -1496,6 +1501,16 @@ struct DayItemsDto {
     error: Option<String>,
 }
 
+/// バイト列を小文字の16進に（4x4 の色を一覧へ渡す形）
+fn hex_of(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
 /// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
 ///
 /// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
@@ -1519,11 +1534,26 @@ async fn list_days(
             .iter()
             .map(
                 |&day_key| match state.read_pool.with(|db| db.search_day(day_key, &query)) {
-                    Ok(v) => DayItemsDto {
-                        day_key,
-                        items: Some(v.into_iter().map(Into::into).collect()),
-                        error: None,
-                    },
+                    Ok(v) => {
+                        // 4x4 の色を添える。読めなくても日の一覧は返す（色は飾り）
+                        let tiny = state
+                            .read_pool
+                            .with(|db| db.tiny_for_days(&[day_key]))
+                            .unwrap_or_default();
+                        DayItemsDto {
+                            day_key,
+                            items: Some(
+                                v.into_iter()
+                                    .map(|r| {
+                                        let mut d = MediaItemDto::from(r);
+                                        d.tiny = tiny.get(&d.id).map(|px| hex_of(px));
+                                        d
+                                    })
+                                    .collect(),
+                            ),
+                            error: None,
+                        }
+                    }
                     Err(e) => DayItemsDto {
                         day_key,
                         items: None,
@@ -7306,6 +7336,52 @@ fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
     }
 }
 
+/// 4x4 の色の埋め役（pictkura-dev #76）。新しく作るサムネイルは作るときに色も書く（`thumbs::publish_thumb`）。
+/// これはその前からあるサムネイル（前の版・版が進んでも残ったもの）のぶん。
+///
+/// 読むのはアプリのサムネイル置き場のファイルだけ——写真の原本にもクラウドにも触らない。起動の仕事
+/// （同期・走査）を先に通すため少し待ってから始め、64 枚ずつ、間を空けて読む。尽きたら 1 分ごとに見直す。
+/// 読めなかったサムネイルには空の印を置き、同じファイルを読み続けない
+fn spawn_tiny_filler(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        pictkura_core::panics::catching("tiny filler", move || {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            let state = app.state::<AppState>();
+            let mut filled = 0usize;
+            let mut started: Option<std::time::Instant> = None;
+            loop {
+                let rows = state
+                    .read_pool
+                    .with(|db| db.tiny_to_fill(64))
+                    .unwrap_or_default();
+                if rows.is_empty() {
+                    if let Some(t) = started.take() {
+                        applog::note(&format!(
+                            "tiny colours filled for {filled} thumbnails in {} s",
+                            t.elapsed().as_secs()
+                        ));
+                        filled = 0;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    continue;
+                }
+                started.get_or_insert_with(std::time::Instant::now);
+                let mut wrote = 0usize;
+                for (id, path) in rows {
+                    let px = pictkura_core::thumbs::tiny_px_of_file(&path).unwrap_or_default();
+                    if let Ok(true) = lock_ok(&state.db).fill_tiny(id, &path, &px) {
+                        wrote += 1;
+                    }
+                }
+                filled += wrote;
+                // 1 枚も書けなかった（読む間に全部付け替わった・書き込みの失敗）なら少し長く待つ
+                let pause = if wrote == 0 { 5_000 } else { 50 };
+                std::thread::sleep(std::time::Duration::from_millis(pause));
+            }
+        });
+    });
+}
+
 /// [`AutoThumbs`] の配り手。2 秒ごとに起き、作る列が細っていたら次の候補を新しい順に積む
 fn spawn_auto_thumbs(handle: tauri::AppHandle) {
     std::thread::spawn(move || loop {
@@ -8821,6 +8897,9 @@ pub fn run() {
 
             // 設定「サムネイルを自動生成」の配り手
             spawn_auto_thumbs(app.handle().clone());
+
+            // 前の版で作ったサムネイルに 4x4 の色を埋める（pictkura-dev #76）
+            spawn_tiny_filler(app.handle().clone());
 
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
             rebuild_watcher(app.handle());
