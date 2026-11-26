@@ -27,7 +27,7 @@ import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } fro
 import { GridThumb } from "./GridThumb";
 import { TinyCanvas } from "./TinyCanvas";
 import { rememberTiny, tinyPixels } from "./tinyPx";
-import { changesLightLayout, decodeLightIndex, usableLightDays, type LightIndex } from "./lightIndex";
+import { changesLightLayout, decodeLightIndex, usableLightDays, withPicked, type LightIndex } from "./lightIndex";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
@@ -3425,6 +3425,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         return;
       }
       if (kind === "picked" && next) addPickedToGoogleRef.current([item.id]);
+      // 軽い索引にも写す（連写の表紙が替わる。⚑ には Rust の差分の知らせが来ない。`withPicked`）
+      if (kind === "picked") setLight((li) => li && withPicked(li, [item.id], next));
       {
         // その印で絞り込み中は骨組み（枚数・日の有無）が変わる
         if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
@@ -7175,6 +7177,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             ? await setFavorites([...ids], on)
             : await setPickeds([...ids], on);
         if (kind === "picked" && on) addPickedToGoogleRef.current(ids);
+        // 軽い索引にも写す（`setMark` と同じ）
+        if (kind === "picked") setLight((li) => li && withPicked(li, ids, on));
         return n;
       } catch (e) {
         // **反転で戻さない**。選択に付いている・付いていないが混ざっていると、

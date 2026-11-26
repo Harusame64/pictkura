@@ -117,6 +117,28 @@ export function changesLightLayout(index: LightIndex | null, p: Pick<LightItem, 
 }
 
 /**
+ * ⚑ を付け替えた写真を索引にも写す（連写の表紙は ⚑ のコマなので、表紙の縦横比が変わりうる）。⚑ の付け替えには
+ * Rust から差分の知らせが来ないので、ここで写さないと、その日が一覧の控えから外れた後に古い表紙で並ぶ（PR #367 の
+ * codex）。変わる写真が無ければ同じ索引を返す
+ */
+export function withPicked(index: LightIndex, ids: Iterable<number>, picked: boolean): LightIndex {
+  const changed = new Map<number, LightItem>();
+  for (const id of ids) {
+    const it = index.byId.get(id);
+    if (it && it.picked !== picked) changed.set(id, { ...it, picked });
+  }
+  if (changed.size === 0) return index;
+  const days = new Map(index.days);
+  const byId = new Map(index.byId);
+  const touchedDays = new Set([...changed.values()].map((it) => it.day_key));
+  for (const day of touchedDays) {
+    days.set(day, (index.days.get(day) ?? []).map((it) => changed.get(it.id) ?? it));
+  }
+  for (const [id, it] of changed) byId.set(id, it);
+  return { days, tiny: index.tiny, byId };
+}
+
+/**
  * 索引の日を一覧に使ってよいか。**骨組みの枚数と合う日だけ**——合わない日（索引を読んだ後に写真が入った・
  * 移った）を索引で並べると、本番の行が届いたときに跳ねる。合わない日は今までどおり仮の行で待つ
  */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changesLightLayout, decodeLightIndex, LIGHT_INDEX_MAGIC, LIGHT_RECORD_LEN, usableLightDays } from "../src/lightIndex.ts";
+import { changesLightLayout, decodeLightIndex, LIGHT_INDEX_MAGIC, LIGHT_RECORD_LEN, usableLightDays, withPicked } from "../src/lightIndex.ts";
 
 /** Rust の `pack_light_index` の表どおりに 1 枚を書く（位置は表から写す。Rust の試験も同じ表を見る） */
 function record(v: DataView, o: number, r: {
@@ -108,4 +108,21 @@ test("an update that changes the layout asks for a new index; a thumbnail-only u
   ] as const) {
     assert.equal(changesLightLayout(idx, { ...it, [k]: v }), true, k);
   }
+});
+
+test("a pick change is copied into the index without touching other days", () => {
+  const idx = decodeLightIndex(
+    indexOf([
+      { ...base, id: 3, shot: 1, day: 2 },
+      { ...base, id: 2, shot: 2, day: 2 },
+      { ...base, id: 1, shot: 3, day: 1 },
+    ]),
+  )!;
+  const next = withPicked(idx, [2, 99], true);
+  assert.notEqual(next, idx);
+  assert.deepEqual(next.days.get(2)!.map((x) => [x.id, x.picked]), [[3, false], [2, true]]);
+  assert.equal(next.byId.get(2)!.picked, true);
+  assert.equal(next.days.get(1), idx.days.get(1), "untouched day keeps its array");
+  assert.equal(idx.byId.get(2)!.picked, false, "the old index is not mutated");
+  assert.equal(withPicked(next, [2], true), next, "no change: same index");
 });
