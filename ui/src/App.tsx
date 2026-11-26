@@ -1864,7 +1864,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const loadDays = useCallback((keys: readonly number[], attempt = 0): void => {
     const now = Date.now();
     // 読めなかった日は、取り直しの時計に任せる（スクロールのたびに頼み直さない）
-    const want = keys.filter((d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now);
+    // 同じ日は1回だけ（1日が画面に何行も出ていると、行の数だけ並ぶ。日の中身を何度も送らない。PR #367 の codex）
+    const want = [...new Set(keys)].filter(
+      (d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now,
+    );
     if (want.length === 0) return;
     for (const d of want) inflightRef.current.add(d);
     const gen = generationRef.current;

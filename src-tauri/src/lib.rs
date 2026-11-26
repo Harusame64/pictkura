@@ -7779,6 +7779,14 @@ fn requested_by_grid(url: &str) -> bool {
         .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
 }
 
+/// 一覧の軽い索引のタイルからの要求か（`GridThumb.tsx` の `lightOnly` が `light=1` を付ける。pictkura-dev #76）。
+/// **サムネイルだけを返す**——無ければ空のタイル。原本を読まず（クラウドにしか無いファイルを落とさない）、生成も
+/// 積まない。索引は起動時に読んだもので、その後に消えたサムネイルを「ある」と言っていることがある（PR #367 の codex）
+fn requested_light(url: &str) -> bool {
+    url.split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "light=1"))
+}
+
 /// 一覧のタイルが、その写真をどの日に並べて頼んだか（`GridThumb.tsx` が `day=` を付ける）。
 ///
 /// 新しいライブラリでは、撮影日を読んだ写真が本当の日へ移る。移る前に出た要求（タイルの要求・
@@ -7957,6 +7965,8 @@ fn handle_media_request(
             // 移った先で作り直され、そこで見えていれば頼み直す。**いまの行を配り直す**——移ったことを一覧が
             // 知らないまま（日を読み込んでいる最中に知らせが来て当たらなかった等）だと、古い日で頼み続けて
             // 灰色のまま残る（/code-review）。配り直せば一覧が日を動かし、タイルは外れる
+            // 軽い索引のタイル: サムネイルが無ければ空のタイル（原本も生成もしない。[`requested_light`]）
+            None if requested_light(url) => return blank_thumb(),
             None if requested_by_grid(url)
                 && requested_day(url).is_some_and(|day| day != record.day_key) =>
             {
@@ -9520,6 +9530,21 @@ mod tests {
             "http://media.localhost/thumb/5?v=1&grid=10"
         ));
         assert!(!super::requested_by_grid("http://media.localhost/thumb/5"));
+    }
+
+    /// 軽い索引のタイルは `light=1` を名乗る（サムネイルだけを返す相手）。`grid=1` とは別の印
+    #[test]
+    fn light_tiles_are_recognised_by_their_marker() {
+        assert!(super::requested_light(
+            "http://media.localhost/thumb/5?v=1-0-2&light=1"
+        ));
+        assert!(!super::requested_light(
+            "http://media.localhost/thumb/5?v=1-0-2&grid=1"
+        ));
+        assert!(!super::requested_light(
+            "http://media.localhost/thumb/5?v=1&light=10"
+        ));
+        assert!(!super::requested_light("http://media.localhost/thumb/5"));
     }
 
     /// 起動の引数から「開く写真」を全部拾う（1 回の起動に並べて渡す形。エクスプローラーで複数を選んで開いたとき）。
