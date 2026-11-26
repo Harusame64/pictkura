@@ -1494,9 +1494,11 @@ input[type="range"]:focus-visible {
   /* 地（絶対配置の canvas）より上に描く */
   position: relative;
 }
-/* 選んだタイルは届く前でも <img> を見せる（下の `.picked .cell`）。そのままだと <img> の地の色が 4x4 の地を
-   覆うので、届くまでは透かす（PR #366 の /code-review） */
-.cell-wrap.picked .cell:not([data-shown]) {
+/* 4x4 の地があるタイルでは、<img> 自体の地の色を透かす。<img> が見えていても描ける絵が無いとき——選んだタイル
+   （届く前でも見せる。下の `.picked .cell`）、空の答え（作り直しを待つ RAW・HEIC。`GridThumb.tsx` が src を外して
+   印を付ける）、透明な 1x1——に、地の色が 4x4 の地を覆って灰色に戻った（PR #366 の /code-review と codex）。
+   絵が届けば絵が覆う */
+.tiny-ground + .cell {
   background: transparent;
 }
 /* サムネイルがもうあるタイル（`GridThumb.tsx` の `ready`）は、届いたらその場で出す。一気に送ると、タイルが画面に
