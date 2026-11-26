@@ -3946,6 +3946,34 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
+    // spike #76: also ask for unloaded days up to `ahead` screens above and below (localStorage
+    // `pictkura.spike76.ahead`, 0 = off). A fast rail drag leaves a day before its list comes back.
+    {
+      let ahead = 0;
+      try {
+        ahead = Number(localStorage.getItem("pictkura.spike76.ahead") ?? "0") || 0;
+      } catch {
+        /* off */
+      }
+      const sc = scrollRef.current;
+      if (ahead > 0 && sc) {
+        const h = sc.clientHeight;
+        const lo = sc.scrollTop - ahead * h;
+        const hi = sc.scrollTop + (ahead + 1) * h;
+        // first row whose bottom is past `lo`
+        let a = 0;
+        let b = rows.length;
+        while (a < b) {
+          const m = (a + b) >> 1;
+          if ((rowTops[m + 1] ?? Infinity) < lo) a = m + 1;
+          else b = m;
+        }
+        for (let i = a; i < rows.length && (rowTops[i] ?? Infinity) < hi; i++) {
+          const row = rows[i];
+          if (row.kind === "placeholder" && !visible.has(row.dayKey)) wanted.push(row.dayKey);
+        }
+      }
+    }
     // 見えている「読み込み中の写真」の束の枚数がずれていたら、出したまま取り直す（上の `refreshSummary` で捨てない
     // 代わり。同じ骨組みには1回、読み途中なら届いた後にまた見る。`staleDays.ts`）
     if (visible.has(UNREAD_DAY)) {
@@ -3967,7 +3995,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // 1回の呼び出しにまとめる（見えている日と控えの日で分けると載せる回数が倍になり、帯を動かす間の描画が
     // 重くなった。win2）
     loadDays(wanted);
-  }, [virtualItems, rows, loadDays, summary, dayItems]);
+  }, [virtualItems, rows, loadDays, summary, dayItems, rowTops]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに

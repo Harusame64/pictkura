@@ -401,11 +401,15 @@ export interface DayItems {
   error: string | null;
 }
 export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) =>
-  invoke<DayItems[]>("list_days", { dayKeys, query, filter }).then((days) => {
-    // spike #76
-    for (const d of days) for (const it of d.items ?? []) rememberTiny(it.id, it.tiny);
-    return days;
-  });
+  ((t0: number) =>
+    invoke<DayItems[]>("list_days", { dayKeys, query, filter }).then((days) => {
+      // spike #76
+      for (const d of days) for (const it of d.items ?? []) rememberTiny(it.id, it.tiny);
+      // spike #76: round-trip log for the probe (`__listDaysLog`)
+      const w = window as unknown as { __listDaysLog?: number[][] };
+      (w.__listDaysLog ??= []).push([Math.round(t0), Math.round(performance.now()), dayKeys.length]);
+      return days;
+    }))(performance.now());
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */
