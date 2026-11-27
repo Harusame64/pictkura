@@ -6561,8 +6561,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         }
       }
     };
+    // 動画の再生バー（音量のつまみなど）に焦点があると、← → はそちらが先に取って音量やシークを動かし、上の受け口へ
+    // 届かなかった（dev #58、win: 0.30 → 0.31。音量は覚えるので残る）。説明書は「前後の写真へ（動画のときも同じ）」
+    // なので、**← → だけ**は外側（capture）で先に取り、送りに回す。↑ ↓ などは再生バーに任せる
+    const onArrowOverVideo = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if ((e.target as HTMLElement | null)?.tagName !== "VIDEO") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onKey(e);
+    };
+    window.addEventListener("keydown", onArrowOverVideo, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onArrowOverVideo, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [
     viewer,
     viewerItem,
