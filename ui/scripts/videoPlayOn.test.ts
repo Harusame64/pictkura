@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { afterVideoEnded, isVideoOnlyFullscreen, nextScopeIndex, scopeStartIndex } from "../src/videoPlayOn.ts";
+import { afterVideoEnded, isVideoOnlyFullscreen, nextScopeIndex, scopeStartIndex, wrapScopeIndex, wrapsOntoItself } from "../src/videoPlayOn.ts";
 
 const filtered = { playing: false, videosOnly: true, inScope: false, curtainUp: false, nextIsVideo: () => true };
 
@@ -87,4 +87,79 @@ test("walking a selection skips seats that are gone, the same for moving and for
   assert.equal(nextScopeIndex(4, 3, 1, gone), -1, "端");
   assert.equal(nextScopeIndex(4, 0, -1, gone), -1, "端");
   assert.equal(nextScopeIndex(4, 1, 1, () => true), -1, "みな消えた");
+});
+
+test("repeat all with the video filter: plays on and wraps at the end, in the same direction", () => {
+  assert.deepEqual(afterVideoEnded({ ...filtered, lastDir: null, repeatAll: true }), {
+    dir: -1,
+    wrap: true,
+    slideshow: false,
+  });
+  assert.deepEqual(afterVideoEnded({ ...filtered, lastDir: 1, repeatAll: true }), { dir: 1, wrap: true, slideshow: false });
+});
+
+test("repeat all in a selection walks videos only and wraps (never stops on a photo)", () => {
+  const scoped = { ...filtered, videosOnly: false, inScope: true, repeatAll: true };
+  // win の升5: 次が写真でも、端の先が写真でも、動画があれば送る（送りの側が写真を飛ばして動画へ着く）
+  assert.deepEqual(afterVideoEnded({ ...scoped, nextIsVideo: () => false, lastDir: null, hasVideo: () => true }), {
+    dir: -1,
+    wrap: true,
+    slideshow: false,
+  });
+  assert.deepEqual(afterVideoEnded({ ...scoped, nextIsVideo: () => true, lastDir: 1, hasVideo: () => true }), {
+    dir: 1,
+    wrap: true,
+    slideshow: false,
+  });
+  // 動画が残っていない（消えた）: 送らない
+  assert.equal(afterVideoEnded({ ...scoped, lastDir: null, hasVideo: () => false }), null);
+  assert.equal(afterVideoEnded({ ...scoped, curtainUp: true, lastDir: null, hasVideo: () => true }), null);
+});
+
+test("without repeat all, the end of the list still stops", () => {
+  const scoped = { ...filtered, videosOnly: false, inScope: true };
+  assert.equal(afterVideoEnded({ ...scoped, nextIsVideo: () => false, lastDir: null, hasVideo: () => true }), null);
+  assert.deepEqual(afterVideoEnded({ ...filtered, lastDir: null }), { dir: -1, wrap: false, slideshow: false });
+});
+
+test("win's step 5: clip3, clip2, photo (newest first) — walking videos only, the end wraps past the photo", () => {
+  // 列: 0=clip3 1=clip2 2=写真。動画だけを歩く（写真は飛ばす席）
+  const isVideo = [true, true, false];
+  const skip = (k: number) => !isVideo[k];
+  // a) clip3（0）から撮った順（-1）: 先は無い → 戻る先は尻から歩いて最初の動画 = clip2（1）
+  assert.equal(nextScopeIndex(3, 0, -1, skip), -1);
+  assert.equal(wrapScopeIndex(3, -1, skip), 1);
+  // b) clip2（1）から古い側（1）: 次は写真なので飛ばして先が無い → 頭から最初の動画 = clip3（0）
+  assert.equal(nextScopeIndex(3, 1, 1, skip), -1);
+  assert.equal(wrapScopeIndex(3, 1, skip), 0);
+});
+
+test("wrapScopeIndex walks from the head for 1 and from the tail for -1, skipping gone seats", () => {
+  const none = () => false;
+  assert.equal(wrapScopeIndex(4, 1, none), 0);
+  assert.equal(wrapScopeIndex(4, -1, none), 3);
+  assert.equal(wrapScopeIndex(4, -1, (k) => k === 3), 2);
+  assert.equal(wrapScopeIndex(4, 1, (k) => k === 0), 1);
+  assert.equal(wrapScopeIndex(0, 1, none), -1);
+  assert.equal(wrapScopeIndex(2, -1, () => true), -1);
+});
+
+test("wrapsOntoItself: only at the end, and only onto the video that just ended", () => {
+  const none = () => false;
+  const ids = [30, 20, 10]; // 列は新しい順。撮った順（-1）なら 10 → 20 → 30
+  const scope = { length: ids.length, idAt: (k: number) => ids[k] };
+  const base = { scope, gone: none, total: 99 };
+  // codex: 動画の絞り込み中に選んだ3本を開く。いちばん古い（尻）から撮った順に流す途中は戻らない
+  assert.equal(wrapsOntoItself({ ...base, from: 2, dir: -1, currentId: 10 }), false);
+  assert.equal(wrapsOntoItself({ ...base, from: 1, dir: -1, currentId: 20 }), false);
+  // 端（いちばん新しい）に着いた: 戻る先は 10 で、今の 30 ではない
+  assert.equal(wrapsOntoItself({ ...base, from: 0, dir: -1, currentId: 30 }), false);
+  // 1本だけ選んだ: 端で、戻る先が自分
+  const one = { length: 1, idAt: () => 7 };
+  assert.equal(wrapsOntoItself({ ...base, scope: one, from: 0, dir: -1, currentId: 7 }), true);
+  // 消えて1本だけ残った（ほかの席は gone）
+  assert.equal(wrapsOntoItself({ ...base, from: 1, dir: -1, gone: (k) => k !== 1, currentId: 20 }), true);
+  // 列が無い（動画の絞り込みの一覧）: 一覧が1枚のときだけ
+  assert.equal(wrapsOntoItself({ scope: null, from: undefined, dir: -1, gone: none, currentId: 1, total: 1 }), true);
+  assert.equal(wrapsOntoItself({ scope: null, from: undefined, dir: -1, gone: none, currentId: 1, total: 3 }), false);
 });

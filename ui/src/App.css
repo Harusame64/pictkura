@@ -1783,7 +1783,11 @@ input[type="range"]:focus-visible {
   --viewer-badge-row: 24px;
   /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
      App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
-  --viewer-fit-w: calc(100vw - 120px - var(--info-reserve));
+  /* 写真のまわりの空き（左右の送りボタン・上下の道具の分）。viewerZoomBox.ts の `VIEWER_PAD` と同じ値 */
+  --viewer-pad-x: 120px;
+  --viewer-pad-y: 80px;
+  --viewer-fit-w: calc(100vw - var(--viewer-pad-x) - var(--info-reserve));
+  --viewer-fit-h: calc(100vh - var(--viewer-pad-y));
   position: fixed;
   inset: 0;
   /* **不透明の暗室**（2026-11-16 デザインレビュー: 97% だと裏の一覧が幽霊のように透けた。3 者とも挙げた）。
@@ -1797,6 +1801,13 @@ input[type="range"]:focus-visible {
   /* 下端に敷く字幕の帯の高さ。フィルムストリップの位置決めと、動画の
      操作バーがその帯に潜らないための余白に使う */
   --caption-h: 44px;
+}
+/* 全画面では写真のまわりを空けず、画面いっぱいに収める（2026-11-27 利用者「上下左右の黒帯が気になる、出来るだけひろく」）。
+ * 送りボタン・道具・下の帯は写真の上に重なり、マウスを止めると消える（下の idle の規則）。縦横比の差の帯は残る（拡大はしない）。
+ * viewerZoomBox.ts の `VIEWER_PAD_FULLSCREEN` と同じ値 */
+.viewer.fullscreen {
+  --viewer-pad-x: 0px;
+  --viewer-pad-y: 0px;
 }
 /* 絵を載せる台（送りの動き）。`.viewer` と同じ面・同じ中央寄せにして、中の絵の置かれ方は
  * 台が無かったころと変えない。下敷き（`.viewer-thumb`）の絶対配置もこの台が基準になる。
@@ -1879,7 +1890,7 @@ input[type="range"]:focus-visible {
 }
 .viewer-image {
   max-width: var(--viewer-fit-w);
-  max-height: calc(100vh - 80px);
+  max-height: var(--viewer-fit-h);
   object-fit: contain;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
 }
@@ -1897,7 +1908,7 @@ input[type="range"]:focus-visible {
   left: 50%;
   top: 50%;
   max-width: var(--viewer-fit-w);
-  max-height: calc(100vh - 80px);
+  max-height: var(--viewer-fit-h);
   object-fit: contain;
   /* 原寸と同じ影。差し替わるときに影だけポンと出ないように */
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
@@ -1909,13 +1920,17 @@ input[type="range"]:focus-visible {
  * 面倒を見ることになり、「最小機能」から外れる */
 .viewer-video {
   max-width: var(--viewer-fit-w);
-  max-height: calc(100vh - 80px);
+  max-height: var(--viewer-fit-h);
   /* 字幕の帯に操作バーが潜らないよう、その分だけ下を空ける（2026-08-22）。
    * 中央寄せのflexなので、下向きの余白を足すと絵はその半分だけ上がる
    * ——絵は縮めずに、下端を字幕の上まで押し上げられる */
   margin-bottom: var(--caption-h);
   background: #000;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
+}
+/* 全画面の動画は、下の空き（字幕の帯の分）を引いた高さまで。引かないと下端が画面の外に出て操作バーが切れる */
+.viewer.fullscreen .viewer-video {
+  max-height: calc(100vh - var(--caption-h));
 }
 /* 再生できないとき（容器が合わない／OSにHEVCが無い）の逃げ道 */
 .viewer-fallback {

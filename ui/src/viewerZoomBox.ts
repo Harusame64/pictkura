@@ -5,9 +5,22 @@ export function boxOf(r: DOMRect): Box {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
+/** 写真のまわりに空ける幅（左右の合計・上下の合計）。CSS の `.viewer` の `--viewer-pad-x` / `--viewer-pad-y` と同じ値 */
+export const VIEWER_PAD = { x: 120, y: 80 };
+/** 全画面では空けない（道具は写真の上に重なり、マウスを止めると消える）。CSS の `.viewer.fullscreen` と同じ */
+export const VIEWER_PAD_FULLSCREEN = { x: 0, y: 0 };
+/** 全画面の動画は字幕の帯（`--caption-h`）の高さだけ下を空ける。CSS の `.viewer.fullscreen .viewer-video` と同じ */
+export const VIEWER_PAD_FULLSCREEN_VIDEO = { x: 0, y: 44 };
+
+/** ビューアの今の空き。全画面か・動画かで決まる（CSS の `.viewer.fullscreen` と `.viewer.fullscreen .viewer-video`） */
+export function viewerPad(fullscreen: boolean, video: boolean): { x: number; y: number } {
+  if (!fullscreen) return VIEWER_PAD;
+  return video ? VIEWER_PAD_FULLSCREEN_VIDEO : VIEWER_PAD_FULLSCREEN;
+}
+
 /**
- * ビューアが写真を収める倍率。CSS の `.viewer-image`（`max-width: var(--viewer-fit-w)` ＝ 幅 - 120 - 情報パネルの分、
- * `max-height: calc(100vh - 80px)`、拡大はしない）と同じ枠。表示倍率の分母とタイルから広がる先の箱が、ここ1か所を読む
+ * ビューアが写真を収める倍率。CSS の `.viewer-image`（`max-width: var(--viewer-fit-w)` ＝ 幅 - 左右の空き - 情報パネルの分、
+ * `max-height: var(--viewer-fit-h)` ＝ 高さ - 上下の空き、拡大はしない）と同じ枠。表示倍率の分母とタイルから広がる先の箱が、ここ1か所を読む
  */
 export function fitScaleFor(
   w: number,
@@ -15,8 +28,9 @@ export function fitScaleFor(
   infoReserve: number,
   viewW: number,
   viewH: number,
+  pad: { x: number; y: number } = VIEWER_PAD,
 ): number {
-  return Math.min(1, (viewW - 120 - infoReserve) / w, (viewH - 80) / h);
+  return Math.min(1, (viewW - pad.x - infoReserve) / w, (viewH - pad.y) / h);
 }
 
 /**
@@ -30,9 +44,10 @@ export function viewerBox(
   rtl: boolean,
   viewW = window.innerWidth,
   viewH = window.innerHeight,
+  pad: { x: number; y: number } = VIEWER_PAD,
 ): Box | null {
   if (!(w > 0 && h > 0)) return null;
-  const k = fitScaleFor(w, h, infoReserve, viewW, viewH);
+  const k = fitScaleFor(w, h, infoReserve, viewW, viewH, pad);
   if (!(k > 0)) return null;
   const width = w * k;
   const height = h * k;
