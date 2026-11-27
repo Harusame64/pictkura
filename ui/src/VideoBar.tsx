@@ -154,44 +154,9 @@ export function VideoBar({
       // 速度の一覧を開いて手を止めた間にバーごと消えた（#378 の win の実機）。地へ届けないのはクリックの方（上）
       onPointerDown={holdFocusUntilRelease}
     >
-      <button
-        className="vbar-btn"
-        title={paused ? t.videoPlay : t.videoPause}
-        aria-label={paused ? t.videoPlay : t.videoPause}
-        onClick={() => {
-          if (video.paused) void video.play().catch(() => {});
-          else video.pause();
-        }}
-      >
-        <Icon name={paused ? "play" : "pause"} size={18} />
-      </button>
-      <button
-        className="vbar-btn"
-        title={t.videoBack(SKIP_SECONDS)}
-        aria-label={t.videoBack(SKIP_SECONDS)}
-        disabled={!seekable}
-        onClick={() => {
-          video.currentTime = seekTarget(video.currentTime, -SKIP_SECONDS, video.duration);
-        }}
-      >
-        <Icon name="skipBack" size={18} />
-      </button>
-      <button
-        className="vbar-btn"
-        title={t.videoForward(SKIP_SECONDS)}
-        aria-label={t.videoForward(SKIP_SECONDS)}
-        disabled={!seekable}
-        onClick={() => {
-          video.currentTime = seekTarget(video.currentTime, SKIP_SECONDS, video.duration);
-        }}
-      >
-        <Icon name="skipForward" size={18} />
-      </button>
-      <span className="vbar-time">
-        {formatTime(current)}
-        {seekable && <> / {formatTime(duration)}</>}
-      </span>
-      {seekable ? (
+      {/* 再生位置は上の段に、動画の幅いっぱい（YouTube の形。利用者 11-27「細くて小さい」）。長さの分からない動画
+          （MediaRecorder の webm など）はシークできないので、標準のバーと同じく帯を出さない */}
+      {seekable && (
         <input
           className="vbar-seek"
           type="range"
@@ -211,93 +176,133 @@ export function VideoBar({
             video.currentTime = v;
           }}
         />
-      ) : (
-        // 長さの分からない動画（MediaRecorder の webm など）はシークできない。標準のバーと同じく、帯は出さない
-        <span className="vbar-spacer" />
       )}
-      <button
-        className="vbar-btn"
-        title={silent ? t.videoUnmute : t.videoMute}
-        aria-label={silent ? t.videoUnmute : t.videoMute}
-        aria-pressed={silent}
-        onClick={() => {
-          if (silent) {
-            video.muted = false;
-            if (video.volume === 0) video.volume = 0.5;
-          } else {
-            video.muted = true;
-          }
-        }}
-      >
-        <Icon name={silent ? "volumeMute" : "volume"} size={18} />
-      </button>
-      <input
-        className="vbar-volume"
-        type="range"
-        min={0}
-        max={1}
-        step={0.01}
-        value={muted ? 0 : volume}
-        style={{ "--p": `${(muted ? 0 : volume) * 100}%` } as CSSProperties}
-        aria-label={t.videoVolume}
-        aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)}%`}
-        onChange={(e) => {
-          const v = Number(e.currentTarget.value);
-          video.volume = v;
-          video.muted = v === 0;
-        }}
-      />
-      <span className="vbar-speed-wrap" ref={speedWrap}>
-        <button
-          className={"vbar-btn vbar-speed" + (rate !== 1 ? " changed" : "")}
-          title={t.videoSpeed}
-          aria-label={t.videoSpeed}
-          aria-expanded={speedOpen}
-          onClick={() => setSpeedOpen((o) => !o)}
-        >
-          {rate === 1 ? <Icon name="speed" size={18} /> : <span className="vbar-rate">{formatSpeed(rate, num)}</span>}
-        </button>
-        {speedOpen && (
-          <div className="vbar-menu">
-            {SPEEDS.map((s) => (
-              <button
-                key={s}
-                aria-pressed={s === rate}
-                className={"vbar-menu-item" + (s === rate ? " on" : "")}
-                onClick={() => {
-                  video.playbackRate = s;
-                  setSpeedOpen(false);
-                }}
-              >
-                {s === 1 ? t.videoSpeedNormal : formatSpeed(s, num)}
-              </button>
-            ))}
-          </div>
-        )}
-      </span>
-      {pipAvailable && (
-        <button
-          className={"vbar-btn" + (pip ? " on" : "")}
-          title={t.videoPip}
-          aria-label={t.videoPip}
-          aria-pressed={pip}
-          onClick={() => {
-            if (document.pictureInPictureElement === video) void document.exitPictureInPicture().catch(() => {});
-            else void video.requestPictureInPicture().catch(() => {});
-          }}
-        >
-          <Icon name="pip" size={18} />
-        </button>
-      )}
-      <button
-        className={"vbar-btn" + (fullscreen ? " on" : "")}
-        title={t.viewerFullscreen}
-        aria-label={t.viewerFullscreen}
-        aria-pressed={fullscreen}
-        onClick={onFullscreen}
-      >
-        <Icon name={fullscreen ? "fullscreenExit" : "fullscreen"} size={18} />
-      </button>
+      <div className="vbar-row">
+        <div className="vbar-group">
+          <button
+            className="vbar-btn"
+            title={paused ? t.videoPlay : t.videoPause}
+            aria-label={paused ? t.videoPlay : t.videoPause}
+            onClick={() => {
+              if (video.paused) void video.play().catch(() => {});
+              else video.pause();
+            }}
+          >
+            <Icon name={paused ? "play" : "pause"} size={24} />
+          </button>
+          <button
+            className="vbar-btn"
+            title={t.videoBack(SKIP_SECONDS)}
+            aria-label={t.videoBack(SKIP_SECONDS)}
+            disabled={!seekable}
+            onClick={() => {
+              video.currentTime = seekTarget(video.currentTime, -SKIP_SECONDS, video.duration);
+            }}
+          >
+            <Icon name="skipBack" size={24} />
+          </button>
+          <button
+            className="vbar-btn"
+            title={t.videoForward(SKIP_SECONDS)}
+            aria-label={t.videoForward(SKIP_SECONDS)}
+            disabled={!seekable}
+            onClick={() => {
+              video.currentTime = seekTarget(video.currentTime, SKIP_SECONDS, video.duration);
+            }}
+          >
+            <Icon name="skipForward" size={24} />
+          </button>
+          <button
+            className="vbar-btn"
+            title={silent ? t.videoUnmute : t.videoMute}
+            aria-label={silent ? t.videoUnmute : t.videoMute}
+            aria-pressed={silent}
+            onClick={() => {
+              if (silent) {
+                video.muted = false;
+                if (video.volume === 0) video.volume = 0.5;
+              } else {
+                video.muted = true;
+              }
+            }}
+          >
+            <Icon name={silent ? "volumeMute" : "volume"} size={24} />
+          </button>
+          <input
+            className="vbar-volume"
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={muted ? 0 : volume}
+            style={{ "--p": `${(muted ? 0 : volume) * 100}%` } as CSSProperties}
+            aria-label={t.videoVolume}
+            aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)}%`}
+            onChange={(e) => {
+              const v = Number(e.currentTarget.value);
+              video.volume = v;
+              video.muted = v === 0;
+            }}
+          />
+          <span className="vbar-time">
+            {formatTime(current)}
+            {seekable && <> / {formatTime(duration)}</>}
+          </span>
+        </div>
+        <div className="vbar-group">
+          <span className="vbar-speed-wrap" ref={speedWrap}>
+            <button
+              className={"vbar-btn vbar-speed" + (rate !== 1 ? " changed" : "")}
+              title={t.videoSpeed}
+              aria-label={t.videoSpeed}
+              aria-expanded={speedOpen}
+              onClick={() => setSpeedOpen((o) => !o)}
+            >
+              {rate === 1 ? <Icon name="speed" size={24} /> : <span className="vbar-rate">{formatSpeed(rate, num)}</span>}
+            </button>
+            {speedOpen && (
+              <div className="vbar-menu">
+                {SPEEDS.map((s) => (
+                  <button
+                    key={s}
+                    aria-pressed={s === rate}
+                    className={"vbar-menu-item" + (s === rate ? " on" : "")}
+                    onClick={() => {
+                      video.playbackRate = s;
+                      setSpeedOpen(false);
+                    }}
+                  >
+                    {s === 1 ? t.videoSpeedNormal : formatSpeed(s, num)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </span>
+          {pipAvailable && (
+            <button
+              className={"vbar-btn" + (pip ? " on" : "")}
+              title={t.videoPip}
+              aria-label={t.videoPip}
+              aria-pressed={pip}
+              onClick={() => {
+                if (document.pictureInPictureElement === video) void document.exitPictureInPicture().catch(() => {});
+                else void video.requestPictureInPicture().catch(() => {});
+              }}
+            >
+              <Icon name="pip" size={24} />
+            </button>
+          )}
+          <button
+            className={"vbar-btn" + (fullscreen ? " on" : "")}
+            title={t.viewerFullscreen}
+            aria-label={t.viewerFullscreen}
+            aria-pressed={fullscreen}
+            onClick={onFullscreen}
+          >
+            <Icon name={fullscreen ? "fullscreenExit" : "fullscreen"} size={24} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

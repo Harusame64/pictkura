@@ -4780,41 +4780,51 @@ html.viewer-only .app > .select-bar {
   min-width: 0;
 }
 
-/* 自作の再生バー（VideoBar.tsx）。ビューアの道具と同じ暗いカプセルを、動画の下端に重ねる。動画が小さくても
-   部品が詰まらないよう、幅は動画か 480px の広い方（動画は真ん中に居るので、はみ出しても左右に均等に出る）。
-   時間は左→右で流れるので、右→左の画面でも並びは裏返さない（標準のバーと同じ） */
+/* 自作の再生バー（VideoBar.tsx）。YouTube の形に寄せる（11-27 利用者「細くて小さい、YouTube に寄せて」）:
+   動画の下端に幅いっぱいで重ね、下から暗くなるグラデーションを敷く。上の段に再生位置の帯（幅いっぱい・触ると太る）、
+   下の段に左の塊（再生・10 秒・音量・時間）と右の塊（速度・PiP・全画面）。動画が小さいときは 480px まで広げて
+   真ん中に置く（はみ出しても左右に均等）。時間は左→右に流れるので、右→左の画面でも並びは裏返さない（標準のバーと同じ） */
 .viewer-vbar {
   position: absolute;
-  bottom: var(--sp-2);
-  /* 真ん中に置く（両端を 0 にして margin で寄せる。幅が箱より広くても左右へ均等にはみ出す） */
+  bottom: 0;
   inset-inline: -100vw;
   margin-inline: auto;
-  width: max(calc(100% - 2 * var(--sp-2)), 480px);
+  width: max(100%, 480px);
+  display: flex;
+  flex-direction: column;
+  padding: 32px var(--sp-3) var(--sp-1);
+  background: linear-gradient(oklch(0 0 0 / 0), oklch(0 0 0 / 0.45) 45%, oklch(0 0 0 / 0.7));
+  color: #fff;
+  line-height: 1;
+  text-shadow: 0 1px 2px oklch(0 0 0 / 0.6);
+}
+.vbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.vbar-group {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 var(--sp-2);
-  height: 40px;
-  border-radius: var(--radius-full);
-  background: var(--viewer-control);
-  outline: 1px solid var(--viewer-control-ring);
-  outline-offset: -1px;
-  color: #fff;
-  line-height: 1;
+  min-width: 0;
 }
 .vbar-btn {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: var(--radius-full);
   background: transparent;
   color: inherit;
   cursor: pointer;
   font-family: inherit;
+  /* 絵にも薄い影（明るい動画の上で線が消えない） */
+  filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.5));
 }
 .vbar-btn:hover:not(:disabled) {
-  background: var(--viewer-control-hover);
+  background: oklch(1 0 0 / 0.14);
 }
 .vbar-btn:disabled {
   opacity: 0.4;
@@ -4823,6 +4833,7 @@ html.viewer-only .app > .select-bar {
 .vbar-btn.on {
   background: var(--viewer-on);
   color: var(--viewer-on-text);
+  filter: none;
 }
 .vbar-btn:focus-visible,
 .viewer-vbar input:focus-visible {
@@ -4832,37 +4843,51 @@ html.viewer-only .app > .select-bar {
 .vbar-time {
   flex: none;
   padding: 0 var(--sp-2);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.vbar-seek {
-  flex: 1;
-  min-width: 60px;
+/* 再生位置の帯: 細い帯、触ると太り、つまみが出る */
+.viewer-vbar input.vbar-seek {
+  width: 100%;
+  margin: 0 0 var(--sp-1);
+  height: 4px;
+  transition: height var(--dur-fast) var(--easing);
 }
-.vbar-spacer {
-  flex: 1;
+.viewer-vbar input.vbar-seek:hover,
+.viewer-vbar input.vbar-seek:focus-visible,
+.viewer-vbar input.vbar-seek:active {
+  height: 6px;
+}
+.viewer-vbar input.vbar-seek::-webkit-slider-thumb {
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--easing);
+}
+.viewer-vbar input.vbar-seek:hover::-webkit-slider-thumb,
+.viewer-vbar input.vbar-seek:focus-visible::-webkit-slider-thumb,
+.viewer-vbar input.vbar-seek:active::-webkit-slider-thumb {
+  transform: scale(1);
 }
 .vbar-volume {
   flex: none;
-  width: 72px;
+  width: 80px;
 }
-/* つまみの帯: 進んだ所（`--p`、VideoBar.tsx が 0〜100% を渡す）は白、残りは薄い白。つまみは小さな白い丸。
+/* つまみの帯: 進んだ所（`--p`、VideoBar.tsx が 0〜100% を渡す）は白、残りは薄い白。つまみは白い丸。
    OS ごとの既定の見た目（mac は灰色の太い帯）だと、進んだ所が見分けにくかった */
 .viewer-vbar input[type="range"] {
   appearance: none;
   -webkit-appearance: none;
   height: 4px;
   margin: 0 var(--sp-1);
-  border-radius: 2px;
+  border-radius: 3px;
   background: linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%));
   cursor: pointer;
 }
 .viewer-vbar input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 0 0 1px oklch(0 0 0 / 0.25);
