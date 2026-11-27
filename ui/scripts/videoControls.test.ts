@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { afterVolumeKey, canSeek, formatTime, seekTarget, volumeTarget } from "../src/videoControls.ts";
+import { afterMuteToggle, afterVolumeKey, canSeek, formatTime, seekTarget, volumeTarget } from "../src/videoControls.ts";
 
 test("formatTime shows m:ss, h:mm:ss past an hour, and --:-- when the length is unknown", () => {
   assert.equal(formatTime(0), "0:00");
@@ -31,4 +31,14 @@ test("volume steps stay in 0..1 without float drift, and turning it up unmutes",
   assert.equal(volumeTarget(0.02, -0.05), 0);
   assert.deepEqual(afterVolumeKey({ volume: 0.5, muted: true }, 0.05), { volume: 0.55, muted: false });
   assert.deepEqual(afterVolumeKey({ volume: 0.5, muted: true }, -0.05), { volume: 0.45, muted: true });
+});
+
+test("afterMuteToggle treats volume 0 as silent, so one M after turning the volume down to 0 brings sound back", () => {
+  assert.deepEqual(afterMuteToggle({ volume: 0.4, muted: false }), { volume: 0.4, muted: true });
+  assert.deepEqual(afterMuteToggle({ volume: 0.4, muted: true }), { volume: 0.4, muted: false });
+  // ↓ で 0 まで下げた形（afterVolumeKey は下げるとき muted を変えない）
+  const down = afterVolumeKey({ volume: 0.05, muted: false }, -0.05);
+  assert.deepEqual(down, { volume: 0, muted: false });
+  assert.deepEqual(afterMuteToggle(down), { volume: 0.5, muted: false });
+  assert.deepEqual(afterMuteToggle({ volume: 0, muted: true }), { volume: 0.5, muted: false });
 });

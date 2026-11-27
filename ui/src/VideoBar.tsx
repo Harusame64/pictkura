@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { t } from "./i18n";
 import { num } from "./i18n/plural";
-import { SKIP_SECONDS, SPEEDS, canSeek, formatSpeed, formatTime, seekTarget } from "./videoControls";
+import { SKIP_SECONDS, SPEEDS, afterMuteToggle, canSeek, formatSpeed, formatTime, seekTarget } from "./videoControls";
 
 /**
  * ビューアの動画の再生バー（自作。dev #58、dev/plan.video-controls.md）。
@@ -44,6 +44,7 @@ export function VideoBar({
   // 速度のボタンと一覧を包む箱。外を押したかは、印ではなく押した先がこの中かで決める——印は、バーが押下の
   // 伝わりを止めると消されずに残り、次の外の押下を見送った（#378 の codex）
   const speedWrap = useRef<HTMLSpanElement>(null);
+  const speedBtn = useRef<HTMLButtonElement>(null);
   // バーそのもの。一覧を開いたままバーの別の部品（再生・つまみ）を押したら、一覧を閉じてその部品も効かせる
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -114,6 +115,10 @@ export function VideoBar({
       if (speedWrap.current?.closest("[inert]")) return;
       e.preventDefault();
       e.stopImmediatePropagation();
+      // 一覧の項目に焦点があったまま閉じると body に落ちる。速度のボタンへ戻す（選んだときと同じ）
+      if (document.activeElement instanceof Node && speedWrap.current?.contains(document.activeElement)) {
+        speedBtn.current?.focus({ preventScroll: true });
+      }
       setSpeedOpen(false);
     };
     // capture で見る——バーの押下は伝わりを止める（地へ届けない）ので、bubble では外か中かを見られない
@@ -220,12 +225,9 @@ export function VideoBar({
             aria-label={silent ? t.videoUnmute : t.videoMute}
             aria-pressed={silent}
             onClick={() => {
-              if (silent) {
-                video.muted = false;
-                if (video.volume === 0) video.volume = 0.5;
-              } else {
-                video.muted = true;
-              }
+              const next = afterMuteToggle({ volume: video.volume, muted: video.muted });
+              video.volume = next.volume;
+              video.muted = next.muted;
             }}
           >
             <Icon name={silent ? "volumeMute" : "volume"} size={24} />
@@ -254,6 +256,7 @@ export function VideoBar({
         <div className="vbar-group">
           <span className="vbar-speed-wrap" ref={speedWrap}>
             <button
+              ref={speedBtn}
               className={"vbar-btn vbar-speed" + (rate !== 1 ? " changed" : "")}
               title={t.videoSpeed}
               aria-label={t.videoSpeed}
@@ -269,9 +272,12 @@ export function VideoBar({
                     key={s}
                     aria-pressed={s === rate}
                     className={"vbar-menu-item" + (s === rate ? " on" : "")}
-                    onClick={() => {
+                    onClick={(e) => {
                       video.playbackRate = s;
                       setSpeedOpen(false);
+                      // キーボード（Tab → Enter/Space）で選んだら、焦点は速度のボタンへ戻す——項目が消えると焦点が
+                      // body に落ち、Tab の位置を失った（1.1.2 前の agy）。マウスなら離したときにビューアへ返る
+                      if (e.detail === 0) speedBtn.current?.focus({ preventScroll: true });
                     }}
                   >
                     {s === 1 ? t.videoSpeedNormal : formatSpeed(s, num)}
