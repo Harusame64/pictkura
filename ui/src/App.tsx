@@ -201,6 +201,7 @@ import {
   boxOf,
   containBox,
   fitScaleFor,
+  viewerPad,
   viewerBox,
   type Box,
 } from "./viewerZoomBox";
@@ -6058,9 +6059,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         ? [servedNatural.w, servedNatural.h]
         : servedSize(viewerItem);
     if (w <= 0 || h <= 0) return 1;
-    // CSS の `max-width: calc(100vw - 120px - var(--info-reserve))` と同じ枠
-    return fitScaleFor(w, h, infoReserve, windowSize.w, windowSize.h);
-  }, [viewerItem, servedNatural, windowSize, infoReserve]);
+    // CSS の `--viewer-fit-w` / `--viewer-fit-h` と同じ枠。全画面では空きを取らない（`.viewer.fullscreen`）
+    return fitScaleFor(
+      w,
+      h,
+      infoReserve,
+      windowSize.w,
+      windowSize.h,
+      // 全画面の動画は字幕の帯の分だけ下を空ける（win の実機: 引かないと札が 96% の絵に「100%」と出た）
+      viewerPad(anyFullscreen, viewerItem.is_video),
+    );
+  }, [viewerItem, servedNatural, windowSize, infoReserve, anyFullscreen]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
   const isActualSize = Math.abs(displayScale - 1) < 0.005;
@@ -7047,7 +7056,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         const known = naturalRef.current.get(opened.id);
         const db = servedSize(opened);
         const size = known && known[0] > known[1] === db[0] > db[1] ? known : db;
-        const to = viewerBox(size, infoReserve, isRtl());
+        const to = viewerBox(
+          size,
+          infoReserve,
+          isRtl(),
+          window.innerWidth,
+          window.innerHeight,
+          viewerPad(anyFullscreen, opened.is_video),
+        );
         setTileZoom(
           to
             ? {
@@ -7072,6 +7088,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       toggleMany,
       openIdOf,
       infoReserve,
+      anyFullscreen,
       handTransition,
     ],
   );
@@ -9729,6 +9746,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             "viewer" +
             (viewerIdle ? " idle" : "") +
             (pointerIdle ? " pointer-idle" : "") +
+            // 全画面では写真のまわりの空きを取らず、画面いっぱいに収める（2026-11-27 利用者「出来るだけひろくみたい」）
+            (anyFullscreen ? " fullscreen" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
           // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が
