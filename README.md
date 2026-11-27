@@ -370,6 +370,7 @@ answer to their English names whatever language the app is in.
 | `Ctrl` + `C` / `Ctrl` + `S` | copy the picture on screen to the clipboard / save it to a file (`⌘` on macOS) |
 | `Ctrl` + `P` | print the photo on screen (`⌘` on macOS) |
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
+| `L` | repeat videos (off → all videos → this video) |
 | `F11` | full screen |
 | `Esc` | close (in full screen, the first press leaves full screen) |
 | `?` / `F1` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
