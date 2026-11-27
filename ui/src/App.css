@@ -2020,6 +2020,11 @@ input[type="range"]:focus-visible {
   opacity: 0;
   pointer-events: none;
 }
+/* 速度の一覧を開いている間は、手を止めても再生バーを消さない（選んでいる途中で一覧ごと消えた。#378 の win の実機） */
+.viewer.idle .viewer-vbar:has(.vbar-menu) {
+  opacity: 1;
+  pointer-events: auto;
+}
 .viewer-caption,
 .viewer-vbar,
 .viewer-tools,
