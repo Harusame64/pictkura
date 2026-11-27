@@ -176,4 +176,7 @@ test("wrapsOntoItself: a slideshow over a selection walks every seat (#373)", ()
   // 同じ列を動画だけで歩く（すべてを繰り返す）と、戻る先は自分
   const photoGone = (k: number) => k === 0;
   assert.equal(wrapsOntoItself({ scope: mixed, from: 1, dir: 1, gone: photoGone, currentId: 7, total: 0 }), true);
+  // 選んだものが無い（一覧ごとのスライドショー）: 一覧が1本のときだけ流し直す
+  assert.equal(wrapsOntoItself({ scope: null, from: undefined, dir: 1, gone: none, currentId: 7, total: 1 }), true);
+  assert.equal(wrapsOntoItself({ scope: null, from: undefined, dir: 1, gone: none, currentId: 7, total: 2 }), false);
 });
