@@ -6561,22 +6561,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         }
       }
     };
-    // 動画の再生バー（音量のつまみなど）に焦点があると、← → はそちらが先に取って音量やシークを動かし、上の受け口へ
-    // 届かなかった（dev #58、win: 0.30 → 0.31。音量は覚えるので残る）。説明書は「前後の写真へ（動画のときも同じ）」
-    // なので、**← → だけ**は外側（capture）で先に取り、送りに回す。↑ ↓ などは再生バーに任せる
-    const onArrowOverVideo = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      if ((e.target as HTMLElement | null)?.tagName !== "VIDEO") return;
-      e.preventDefault();
-      e.stopPropagation();
-      onKey(e);
-    };
-    window.addEventListener("keydown", onArrowOverVideo, true);
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onArrowOverVideo, true);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [
     viewer,
     viewerItem,
@@ -9902,6 +9888,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 // （src差し替えだけだと前の再生位置やバッファが残る）
                 key={viewerItem.id}
                 ref={attachVideo}
+                // マウスで再生バー（音量のつまみ・シークバー）を触ったら、離したところで焦点を返す。焦点が残ると、
+                // ← → と Esc は再生バーが頁より先に飲み込み、送りも全画面を抜けるのも効かなかった（dev #58。win の実機:
+                // window の capture にも 1 件も届かない——頁の側では横取りできない）。Tab で再生バーへ来た人は
+                // そのまま（← → でシーク・音量を使う）
+                onPointerUp={(e) => {
+                  const video = e.currentTarget;
+                  requestAnimationFrame(() => {
+                    if (document.activeElement === video) video.blur();
+                  });
+                }}
                 onVolumeChange={(e) => {
                   const v = { volume: e.currentTarget.volume, muted: e.currentTarget.muted };
                   saveVideoVolume(v);
