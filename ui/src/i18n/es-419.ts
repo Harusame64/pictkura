@@ -194,7 +194,7 @@ export const es419: Dict = {
         ["I", "Datos del archivo y de la toma (cámara, objetivo, diafragma, obturación, ISO, distancia focal, GPS)"],
         ["Espacio", "Pase de diapositivas. En un video, reproducir / pausar"],
         ["1 / 0", "1 alterna entre tamaño real 100 % y ajustar a la ventana; 0 siempre ajusta"],
-        ["L", "Repetir videos (no → todos los videos → este video)"],
+        ["L", "Repetir videos (desactivado → todos los videos → este video)"],
         ["F11", "Pantalla completa"],
         ["Esc", "Cerrar"],
       ],

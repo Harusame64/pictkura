@@ -3654,10 +3654,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     [viewerScopeFiles, pairOf, pairView],
   );
   /**
-   * 動画の再生リストがあるか（終わったら次の動画へ続ける所。videoPlayOn.ts）: 動画の絞り込み中か、選んだものだけで
-   * 開いているとき。「このアプリで開く」で 1 枚から並べたフォルダは選んだ物ではないので数えない
+   * 動画の再生リスト（終わったら次の動画へ続ける所。videoPlayOn.ts）。動画の終わり（`onEnded`）と繰り返しのボタンが
+   * ここ1か所を読む（写すと、ボタンが「すべて」を見せるのに続かない、が起きる。#372 の /code-review）。
+   * - 動画の絞り込み中（`videosOnly`）。**「このアプリで開く」の外のフォルダは数えない**——ビューアはそのフォルダを
+   *   歩くので、絞り込みが動画でも写真が並ぶ（#372 の /code-review。前から写真へ続いて止まっていた）
+   * - 選んだものだけで開いている（`videoInScope`）。外のフォルダは、複数を選んで開いたとき（`outsidePlaylist`）だけ
    */
-  const videoPlaylist = kind === "video" || (viewerScope !== null && (outsideItems === null || outsidePlaylist));
+  const videosOnlyList = kind === "video" && outsideItems === null;
+  const videoInScope = viewerScope !== null && (outsideItems === null || outsidePlaylist);
+  const videoPlaylist = videosOnlyList || videoInScope;
   /** 動画の繰り返し（videoRepeat.ts）。覚えた値と、いま効いている値（再生リストが無ければ「すべて」はオフ） */
   const [videoRepeatMode, setVideoRepeatMode] = useState<VideoRepeat>(() => loadVideoRepeat());
   const videoRepeat = effectiveRepeat(videoRepeatMode, videoPlaylist);
@@ -9858,8 +9863,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
                 autoPlay
-                // 1本を繰り返す（videoRepeat.ts）。繰り返している間は終わりが来ないので `onEnded` は走らない
-                loop={videoRepeat === "one"}
+                // 1本を繰り返す（videoRepeat.ts）。繰り返している間は終わりが来ないので `onEnded` は走らない。
+                // **スライドショー中は繰り返さない**——送りは動画の終わり（`onEnded`）を待つので、その動画で止まり続ける
+                // （#372 の /code-review）
+                loop={videoRepeat === "one" && !playing}
                 onClick={(e) => e.stopPropagation()}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -9871,14 +9878,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 }}
                 // スライドショー中は最後まで見せてから次へ送る。動画のフィルター中と、選んだものだけで開いているときは、
                 // スライドショーでなくても、終わったら最後に動かした向き（まだなら撮った順）へ続ける（dev #75）
-                onEnded={() => {
+                onEnded={(e) => {
                   const next = afterVideoEnded({
                     playing,
                     lastDir: lastMoveDirRef.current,
-                    videosOnly: kind === "video",
-                    // 選んだものだけで開いたとき（再生リスト）。「このアプリで開く」で 1 枚から並べたフォルダは
-                    // 選んだ物ではないので数えない。複数を選んで開いたときは選んだ物（`outsidePlaylist`）
-                    inScope: viewerScope !== null && (outsideItems === null || outsidePlaylist),
+                    // 再生リストの決め方は `videoPlaylist` の所に1か所だけ
+                    videosOnly: videosOnlyList,
+                    inScope: videoInScope,
                     curtainUp,
                     // 送りと同じ歩き方で着く先を見る（消えた席は飛ばす。`nextScopeIndex`）
                     nextIsVideo: (dir) => {
@@ -9898,7 +9904,19 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       return k >= 0 && viewerScope[k].is_video;
                     },
                   });
-                  if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);
+                  if (!next) return;
+                  // すべてを繰り返す端で、戻る先が今の動画そのもの（再生リストの動画が1本）なら、送っても同じ席で
+                  // 何も作り直されず止まる——頭から流し直す（#372 の /code-review）
+                  if (next.wrap && !next.slideshow) {
+                    const k = viewerScope ? wrapScopeIndex(viewerScope.length, next.dir, scopeGone) : -1;
+                    const same = viewerScope ? k >= 0 && viewerScope[k].id === viewerItem.id : totalShown === 1;
+                    if (same) {
+                      e.currentTarget.currentTime = 0;
+                      void e.currentTarget.play().catch(() => {});
+                      return;
+                    }
+                  }
+                  moveViewer(next.dir, next.wrap, next.slideshow, false);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
