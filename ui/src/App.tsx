@@ -9934,15 +9934,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                   if (!next) return;
                   // すべてを繰り返す端で、戻る先が今の動画そのもの（再生リストの動画が1本）なら、送っても同じ席で
                   // 何も作り直されず止まる——頭から流し直す（#372 の /code-review）
-                  // 端に着いたときだけ見る（`wrapsOntoItself`）
-                  if (next.wrap && !next.slideshow) {
+                  // 端に着いたときだけ見る（`wrapsOntoItself`）。スライドショーも同じ: 動画1本だけを選んで回すと、一周の
+                  // 戻る先が自分で止まった（#373）。スライドショーは写真にも着くので、すべての席を歩く
+                  if (next.wrap) {
                     const scope = viewerScope;
                     const same = wrapsOntoItself({
                       scope: scope ? { length: scope.length, idAt: (k) => scope[k].id } : null,
                       from: scopeIdx,
                       dir: next.dir,
-                      // 動画だけを歩く（送りの `videosOnlyWalk` と同じ歩き方）
-                      gone: scopeVideoGone,
+                      // 送りと同じ歩き方: すべてを繰り返すなら動画だけ（`videosOnlyWalk`）、スライドショーはすべての席
+                      gone: next.slideshow ? scopeGone : scopeVideoGone,
                       currentId: viewerItem.id,
                       total: totalShown,
                     });
