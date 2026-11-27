@@ -176,9 +176,24 @@ const PATHS = {
       <path d="M11 10.6l1.2-.6v4" />
     </>
   ),
-  // 自作の再生バー（VideoBar.tsx）。戻す・送る: 開いた円の矢（字は入れない——幅の 10 秒は名前が言う）
-  skipBack: <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 3.5v3.7h3.7" />,
-  skipForward: <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 3.5v3.7h-3.7" />,
+  // 自作の再生バー（VideoBar.tsx）。戻す・送る: 開いた円の矢と、中に 10（矢だけでは「やり直し」「繰り返し」と
+  // 見分けにくかった。#379 の agy。幅は videoControls.ts の SKIP_SECONDS と同じ）
+  skipBack: (
+    <>
+      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 3.5v3.7h3.7" />
+      <text x="12.5" y="15.2" fontSize="7.5" fontWeight="700" textAnchor="middle" fill="currentColor" stroke="none">
+        10
+      </text>
+    </>
+  ),
+  skipForward: (
+    <>
+      <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 3.5v3.7h-3.7" />
+      <text x="11.5" y="15.2" fontSize="7.5" fontWeight="700" textAnchor="middle" fill="currentColor" stroke="none">
+        10
+      </text>
+    </>
+  ),
   // 音量: 拡声器と音の弧。消音は弧の代わりに ×（線の間は 2 以上空ける）
   volume: <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />,
   volumeMute: <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9.5l5 5M20.5 9.5l-5 5" />,

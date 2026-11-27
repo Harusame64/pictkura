@@ -16,7 +16,9 @@ import { SKIP_SECONDS, SPEEDS, canSeek, formatSpeed, formatTime, seekTarget } fr
  * - **マウスで触っても焦点を残さない**——押して離したら、ビューアの外枠へ返す（`onReturnFocus`）。離すのが
  *   バーの外のこともある（つまみを端の先まで引く）ので、押したときに window で離すのを待つ。
  *   Tab で来た人はそのまま（つまみの ← → で動かせる。App.tsx のキーの受け手はつまみの矢印を横取りしない）
- * - 見た目はビューアの道具と同じ暗いカプセル。マウスを止めると他の道具と一緒に消える（App.css の idle の規則）
+ * - 見た目は YouTube の形（利用者 11-27）: 動画の幅いっぱい、下から暗くなる帯の上に、上の段が再生位置、下の段が
+ *   左の塊（再生・10 秒・音量・時間）と右の塊（速度・PiP・全画面）。マウスを止めると他の道具と一緒に消える
+ *   （App.css の idle の規則）
  */
 export function VideoBar({
   video,

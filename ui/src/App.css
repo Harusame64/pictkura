@@ -4792,10 +4792,40 @@ html.viewer-only .app > .select-bar {
   width: max(100%, 480px);
   display: flex;
   flex-direction: column;
-  padding: 32px var(--sp-3) var(--sp-1);
-  background: linear-gradient(oklch(0 0 0 / 0), oklch(0 0 0 / 0.45) 45%, oklch(0 0 0 / 0.7));
+  padding: 0 var(--sp-3) var(--sp-1);
   color: #fff;
   line-height: 1;
+  /* バーの箱そのものは押下を受けない——部品の間や上の空きを押したら、下の動画（再生／一時停止）や地へ落とす
+     （#379 の /code-review: 透明な上の空きが動画のクリックを飲んだ）。受けるのは再生位置の帯と部品の塊だけ */
+  pointer-events: none;
+  /* 下の暗い帯（`.viewer-video-box::after`）は箱の最後に描かれるので、前へ出さないとバーの上に重なってくすんだ */
+  z-index: 1;
+  /* 狭い動画では部品を減らす（下の @container） */
+  container-type: inline-size;
+}
+.viewer-vbar .vbar-seek,
+.viewer-vbar .vbar-group {
+  pointer-events: auto;
+}
+/* 下から暗くなる帯は、動画の箱の中だけに描く（バーは 480px まで広がるので、バーに描くと細い動画の外へはみ出した）。
+   道具と一緒に消える */
+.viewer-video-box::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 104px;
+  /* 再生位置の帯（下から約 60px）の所でも 0.4 ほど残す——白い動画の上で白い帯が消えないように（#379 の agy） */
+  background: linear-gradient(oklch(0 0 0 / 0), oklch(0 0 0 / 0.5) 40%, oklch(0 0 0 / 0.75));
+  pointer-events: none;
+  transition: opacity var(--dur) var(--easing);
+}
+.viewer.idle .viewer-video-box::after {
+  opacity: 0;
+}
+.vbar-time,
+.vbar-rate,
+.vbar-btn {
   text-shadow: 0 1px 2px oklch(0 0 0 / 0.6);
 }
 .vbar-row {
@@ -4844,44 +4874,33 @@ html.viewer-only .app > .select-bar {
   flex: none;
   padding: 0 var(--sp-2);
   font-size: var(--fs-md);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-/* 再生位置の帯: 細い帯、触ると太り、つまみが出る */
-.viewer-vbar input.vbar-seek {
-  width: 100%;
-  margin: 0 0 var(--sp-1);
-  height: 4px;
-  transition: height var(--dur-fast) var(--easing);
-}
-.viewer-vbar input.vbar-seek:hover,
-.viewer-vbar input.vbar-seek:focus-visible,
-.viewer-vbar input.vbar-seek:active {
-  height: 6px;
-}
-.viewer-vbar input.vbar-seek::-webkit-slider-thumb {
-  transform: scale(0);
-  transition: transform var(--dur-fast) var(--easing);
-}
-.viewer-vbar input.vbar-seek:hover::-webkit-slider-thumb,
-.viewer-vbar input.vbar-seek:focus-visible::-webkit-slider-thumb,
-.viewer-vbar input.vbar-seek:active::-webkit-slider-thumb {
-  transform: scale(1);
 }
 .vbar-volume {
   flex: none;
   width: 80px;
 }
+/* 狭い動画（縦長の動画など）では、音量のつまみを畳む。ミュートのボタンと ↑ ↓ は残る（#379 の /code-review:
+   480px では部品の合計が幅を超え、左右の塊が重なった） */
+@container (max-width: 560px) {
+  .vbar-volume {
+    display: none;
+  }
+}
 /* つまみの帯: 進んだ所（`--p`、VideoBar.tsx が 0〜100% を渡す）は白、残りは薄い白。つまみは白い丸。
    OS ごとの既定の見た目（mac は灰色の太い帯）だと、進んだ所が見分けにくかった */
+/* 押せる高さは 16px、描く帯は真ん中の 4px（背景の大きさ）。太らせるのも背景の大きさで——高さを変えるとバー全体が
+   上下に動き、帯が手の下から逃げた（#379 の /code-review） */
 .viewer-vbar input[type="range"] {
   appearance: none;
   -webkit-appearance: none;
-  height: 4px;
+  height: 16px;
   margin: 0 var(--sp-1);
-  border-radius: 3px;
-  background: linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%));
+  background: linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%)) center / 100% 4px no-repeat;
   cursor: pointer;
+  filter: drop-shadow(0 1px 1px oklch(0 0 0 / 0.45));
 }
 .viewer-vbar input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -4891,6 +4910,27 @@ html.viewer-only .app > .select-bar {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 0 0 1px oklch(0 0 0 / 0.25);
+}
+/* 再生位置の帯: 幅いっぱい、触ると太り、つまみが出る。汎用の帯の規則より後に、強い選択子で書く（同じ強さで前に
+   書くと、後ろの margin に負けて帯が 4px ずれ、下の段にくっついた。#379 の /code-review） */
+.viewer-vbar input[type="range"].vbar-seek {
+  width: 100%;
+  margin: 0 0 var(--sp-1);
+  transition: background-size var(--dur-fast) var(--easing);
+}
+.viewer-vbar input[type="range"].vbar-seek:hover,
+.viewer-vbar input[type="range"].vbar-seek:focus-visible,
+.viewer-vbar input[type="range"].vbar-seek:active {
+  background-size: 100% 6px;
+}
+.viewer-vbar input[type="range"].vbar-seek::-webkit-slider-thumb {
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--easing);
+}
+.viewer-vbar input[type="range"].vbar-seek:hover::-webkit-slider-thumb,
+.viewer-vbar input[type="range"].vbar-seek:focus-visible::-webkit-slider-thumb,
+.viewer-vbar input[type="range"].vbar-seek:active::-webkit-slider-thumb {
+  transform: scale(1);
 }
 .vbar-speed-wrap {
   position: relative;
@@ -4905,6 +4945,7 @@ html.viewer-only .app > .select-bar {
   padding: 0 var(--sp-2);
 }
 .vbar-menu {
+  text-shadow: none;
   position: absolute;
   bottom: calc(100% + var(--sp-2));
   inset-inline-end: 0;

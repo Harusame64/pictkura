@@ -27,5 +27,7 @@ export const IDLE_HIT_TARGETS = [
   ".viewer-nav",
   ".viewer-strip",
   ".viewer-caption > *",
-  ".viewer-vbar",
+  // 再生バーは押せる所だけ（帯と部品の塊）。箱の上の空きは動画のクリックへ素通しする（App.css の pointer-events）
+  ".viewer-vbar .vbar-seek",
+  ".viewer-vbar .vbar-group",
 ];

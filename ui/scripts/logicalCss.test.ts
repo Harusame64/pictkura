@@ -45,7 +45,7 @@ const KEEP: Record<string, string> = {
   "html.mac-overlay:not(.mac-fullscreen) .topbar, html.mac-overlay:not(.mac-fullscreen) .select-bar|padding-left|84px": TRAFFIC,
   "html.mac-overlay:not(.mac-fullscreen) .select-bar ~ .topbar|padding-left|var(--sp-4)": TRAFFIC,
   "html.mac-overlay:not(.mac-fullscreen):not([dir=\"rtl\"]) .viewer-back, html.mac-overlay:not(.mac-fullscreen):not([dir=\"rtl\"]) .viewer-badges, html.mac-overlay:not(.mac-fullscreen)[dir=\"rtl\"] .viewer-tools|margin-left|68px": TRAFFIC,
-  '.viewer-vbar input[type="range"]|background|linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%))':
+  '.viewer-vbar input[type="range"]|background|linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%)) center / 100% 4px no-repeat':
     TIMELINE,
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
