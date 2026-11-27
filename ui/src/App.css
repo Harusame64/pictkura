@@ -1912,15 +1912,19 @@ input[type="range"]:focus-visible {
   pointer-events: none;
 }
 /* 動画プレイヤー（第9部）。写真と同じ大きさの枠に収める。
- * 操作バーは `controls` に任せる——自前で作ると全画面・音量・字幕まで
- * 面倒を見ることになり、「最小機能」から外れる */
-.viewer-video {
-  max-width: var(--viewer-fit-w);
-  max-height: var(--viewer-fit-h);
+ * 操作バーは自作（VideoBar.tsx。dev #58——標準の `controls` は Windows で ← → と Esc を頁に渡さなかった）。
+ * 動画とバーを `.viewer-video-box` に入れ、バーは動画の下端に重ねる */
+.viewer-video-box {
+  position: relative;
   /* 字幕の帯に操作バーが潜らないよう、その分だけ下を空ける（2026-08-22）。
    * 中央寄せのflexなので、下向きの余白を足すと絵はその半分だけ上がる
    * ——絵は縮めずに、下端を字幕の上まで押し上げられる */
   margin-bottom: var(--caption-h);
+}
+.viewer-video {
+  display: block;
+  max-width: var(--viewer-fit-w);
+  max-height: var(--viewer-fit-h);
   background: #000;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
 }
@@ -2008,6 +2012,7 @@ input[type="range"]:focus-visible {
 
 /* マウスを止めるとクロームを消して写真だけにする */
 .viewer.idle .viewer-caption,
+.viewer.idle .viewer-vbar,
 .viewer.idle .viewer-tools,
 .viewer.idle .viewer-back,
 .viewer.idle .viewer-strip,
@@ -2015,7 +2020,13 @@ input[type="range"]:focus-visible {
   opacity: 0;
   pointer-events: none;
 }
+/* 速度の一覧を開いている間は、手を止めても再生バーを消さない（選んでいる途中で一覧ごと消えた。#378 の win の実機） */
+.viewer.idle .viewer-vbar:has(.vbar-menu) {
+  opacity: 1;
+  pointer-events: auto;
+}
 .viewer-caption,
+.viewer-vbar,
 .viewer-tools,
 .viewer-back,
 .viewer-strip,
@@ -4767,4 +4778,134 @@ html.viewer-only .app > .select-bar {
 .pack-seg {
   flex: none;
   min-width: 0;
+}
+
+/* 自作の再生バー（VideoBar.tsx）。ビューアの道具と同じ暗いカプセルを、動画の下端に重ねる。動画が小さくても
+   部品が詰まらないよう、幅は動画か 480px の広い方（動画は真ん中に居るので、はみ出しても左右に均等に出る）。
+   時間は左→右で流れるので、右→左の画面でも並びは裏返さない（標準のバーと同じ） */
+.viewer-vbar {
+  position: absolute;
+  bottom: var(--sp-2);
+  /* 真ん中に置く（両端を 0 にして margin で寄せる。幅が箱より広くても左右へ均等にはみ出す） */
+  inset-inline: -100vw;
+  margin-inline: auto;
+  width: max(calc(100% - 2 * var(--sp-2)), 480px);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--sp-2);
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: var(--viewer-control);
+  outline: 1px solid var(--viewer-control-ring);
+  outline-offset: -1px;
+  color: #fff;
+  line-height: 1;
+}
+.vbar-btn {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+}
+.vbar-btn:hover:not(:disabled) {
+  background: var(--viewer-control-hover);
+}
+.vbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.vbar-btn.on {
+  background: var(--viewer-on);
+  color: var(--viewer-on-text);
+}
+.vbar-btn:focus-visible,
+.viewer-vbar input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.vbar-time {
+  flex: none;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.vbar-seek {
+  flex: 1;
+  min-width: 60px;
+}
+.vbar-spacer {
+  flex: 1;
+}
+.vbar-volume {
+  flex: none;
+  width: 72px;
+}
+/* つまみの帯: 進んだ所（`--p`、VideoBar.tsx が 0〜100% を渡す）は白、残りは薄い白。つまみは小さな白い丸。
+   OS ごとの既定の見た目（mac は灰色の太い帯）だと、進んだ所が見分けにくかった */
+.viewer-vbar input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 4px;
+  margin: 0 var(--sp-1);
+  border-radius: 2px;
+  background: linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%));
+  cursor: pointer;
+}
+.viewer-vbar input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px oklch(0 0 0 / 0.25);
+}
+.vbar-speed-wrap {
+  position: relative;
+  flex: none;
+}
+.vbar-rate {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.vbar-speed.changed {
+  width: auto;
+  padding: 0 var(--sp-2);
+}
+.vbar-menu {
+  position: absolute;
+  bottom: calc(100% + var(--sp-2));
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 96px;
+  padding: var(--sp-1);
+  border-radius: var(--radius-surface);
+  background: var(--viewer-dock);
+  outline: 1px solid var(--viewer-control-ring);
+  outline-offset: -1px;
+}
+.vbar-menu-item {
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  text-align: start;
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.vbar-menu-item:hover {
+  background: var(--viewer-control-hover);
+}
+.vbar-menu-item.on {
+  font-weight: 600;
 }

@@ -1134,6 +1134,8 @@ const SAME_AS_EN: Record<string, string[]> = {
     "rejectChip", // 記号と数だけ
     "settingsManual", // `Manual` は葡語の語でもある
     "wizardCapped", // 数だけ
+    "videoSpeedNormal", // `Normal` は葡語の語でもある（再生速度の「標準」）
+    "videoVolume", // `Volume` は葡語の語でもある
   ],
   de: [
     "appFilter", // ドイツ語でも「Apps」
@@ -1150,6 +1152,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "photosCount", // 数だけ
     "rejectChip", // `✕ 3`
     "wizardCapped", // `3+`
+    "videoSpeedNormal", // `Normal` は独語の語でもある（再生速度の「標準」）
   ],
   es: [
     "burstChipShort", // `▤ 12`: 記号と数だけ
@@ -1164,6 +1167,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "photosCount",
     "rejectChip",
     "wizardCapped",
+    "videoSpeedNormal", // `Normal` は西語の語でもある（再生速度の「標準」）
   ],
   "es-419": [
     "burstChipShort", // `▤ 12`: 記号と数だけ
@@ -1179,6 +1183,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "rejectChip",
     "wizardCapped",
     "kindVideo", // **中南米では `Videos`**（本国は `Vídeos`）。英語と同じ綴りになる
+    "videoSpeedNormal", // `Normal` は西語の語でもある（再生速度の「標準」）
   ],
   ja: [
     "burstChipShort", // `▤ 12`: 記号と数だけ
@@ -1210,6 +1215,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "settingsDestination", // 同上
     "fileInfoDimensions", // `Dimensions`
     "fileInfoType", // `Type`
+    "videoVolume", // `Volume` は仏語の語でもある
   ],
   it: [
     "burstChipShort", // `▤ 12`: 記号と数だけ
@@ -1224,6 +1230,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "photosCount",
     "rejectChip",
     "wizardCapped",
+    "videoVolume", // `Volume` は伊語の語でもある
   ],
   ru: [
     "burstChipShort", // `▤ 12`: 記号と数だけ
