@@ -9888,15 +9888,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 // （src差し替えだけだと前の再生位置やバッファが残る）
                 key={viewerItem.id}
                 ref={attachVideo}
-                // マウスで再生バー（音量のつまみ・シークバー）を触ったら、離したところで焦点を返す。焦点が残ると、
+                // マウスで再生バー（音量のつまみ・シークバー）を触ったら、離したところで焦点をビューアへ返す。焦点が残ると、
                 // ← → と Esc は再生バーが頁より先に飲み込み、送りも全画面を抜けるのも効かなかった（dev #58。win の実機:
                 // window の capture にも 1 件も届かない——頁の側では横取りできない）。Tab で再生バーへ来た人は
-                // そのまま（← → でシーク・音量を使う）
-                onPointerUp={(e) => {
+                // そのまま（← → でシーク・音量を使う）。
+                // 離すのは動画の外のこともある（つまみを端の先までドラッグ）ので、押したときに window で離すのを待つ。
+                // 返す先は body ではなくビューアの外枠（dev #65: 読み上げがビューアの名前を失う。全画面ボタンの後と同じ）
+                onPointerDown={(e) => {
                   const video = e.currentTarget;
-                  requestAnimationFrame(() => {
-                    if (document.activeElement === video) video.blur();
-                  });
+                  const giveBack = () => {
+                    window.removeEventListener("pointerup", giveBack, true);
+                    window.removeEventListener("pointercancel", giveBack, true);
+                    requestAnimationFrame(() => {
+                      if (document.activeElement === video) viewerRootRef.current?.focus({ preventScroll: true });
+                    });
+                  };
+                  window.addEventListener("pointerup", giveBack, true);
+                  window.addEventListener("pointercancel", giveBack, true);
                 }}
                 onVolumeChange={(e) => {
                   const v = { volume: e.currentTarget.volume, muted: e.currentTarget.muted };
