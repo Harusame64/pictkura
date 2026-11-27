@@ -201,8 +201,7 @@ import {
   boxOf,
   containBox,
   fitScaleFor,
-  VIEWER_PAD,
-  VIEWER_PAD_FULLSCREEN,
+  viewerPad,
   viewerBox,
   type Box,
 } from "./viewerZoomBox";
@@ -6067,7 +6066,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       infoReserve,
       windowSize.w,
       windowSize.h,
-      anyFullscreen ? VIEWER_PAD_FULLSCREEN : VIEWER_PAD,
+      // 全画面の動画は字幕の帯の分だけ下を空ける（win の実機: 引かないと札が 96% の絵に「100%」と出た）
+      viewerPad(anyFullscreen, viewerItem.is_video),
     );
   }, [viewerItem, servedNatural, windowSize, infoReserve, anyFullscreen]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
@@ -7056,7 +7056,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         const known = naturalRef.current.get(opened.id);
         const db = servedSize(opened);
         const size = known && known[0] > known[1] === db[0] > db[1] ? known : db;
-        const to = viewerBox(size, infoReserve, isRtl());
+        const to = viewerBox(
+          size,
+          infoReserve,
+          isRtl(),
+          window.innerWidth,
+          window.innerHeight,
+          viewerPad(anyFullscreen, opened.is_video),
+        );
         setTileZoom(
           to
             ? {
@@ -7081,6 +7088,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       toggleMany,
       openIdOf,
       infoReserve,
+      anyFullscreen,
       handTransition,
     ],
   );

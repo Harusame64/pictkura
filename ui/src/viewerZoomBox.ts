@@ -9,6 +9,14 @@ export function boxOf(r: DOMRect): Box {
 export const VIEWER_PAD = { x: 120, y: 80 };
 /** 全画面では空けない（道具は写真の上に重なり、マウスを止めると消える）。CSS の `.viewer.fullscreen` と同じ */
 export const VIEWER_PAD_FULLSCREEN = { x: 0, y: 0 };
+/** 全画面の動画は字幕の帯（`--caption-h`）の高さだけ下を空ける。CSS の `.viewer.fullscreen .viewer-video` と同じ */
+export const VIEWER_PAD_FULLSCREEN_VIDEO = { x: 0, y: 44 };
+
+/** ビューアの今の空き。全画面か・動画かで決まる（CSS の `.viewer.fullscreen` と `.viewer.fullscreen .viewer-video`） */
+export function viewerPad(fullscreen: boolean, video: boolean): { x: number; y: number } {
+  if (!fullscreen) return VIEWER_PAD;
+  return video ? VIEWER_PAD_FULLSCREEN_VIDEO : VIEWER_PAD_FULLSCREEN;
+}
 
 /**
  * ビューアが写真を収める倍率。CSS の `.viewer-image`（`max-width: var(--viewer-fit-w)` ＝ 幅 - 左右の空き - 情報パネルの分、
@@ -36,9 +44,10 @@ export function viewerBox(
   rtl: boolean,
   viewW = window.innerWidth,
   viewH = window.innerHeight,
+  pad: { x: number; y: number } = VIEWER_PAD,
 ): Box | null {
   if (!(w > 0 && h > 0)) return null;
-  const k = fitScaleFor(w, h, infoReserve, viewW, viewH);
+  const k = fitScaleFor(w, h, infoReserve, viewW, viewH, pad);
   if (!(k > 0)) return null;
   const width = w * k;
   const height = h * k;

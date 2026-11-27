@@ -4,7 +4,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { containBox, fitScaleFor, VIEWER_PAD_FULLSCREEN, viewerBox } from "../src/viewerZoomBox.ts";
+import { readFileSync } from "node:fs";
+import {
+  containBox,
+  fitScaleFor,
+  VIEWER_PAD,
+  VIEWER_PAD_FULLSCREEN,
+  VIEWER_PAD_FULLSCREEN_VIDEO,
+  viewerBox,
+  viewerPad,
+} from "../src/viewerZoomBox.ts";
 
 test("a large photo fits inside the margins, centred", () => {
   // 幅の上限 1920-120=1800、高さの上限 1080-80=1000。横長 6000x4000 は高さで決まる（1500x1000）
@@ -76,4 +85,35 @@ test("fitScaleFor in full screen uses the whole screen", () => {
   assert.equal(fitScaleFor(6000, 1000, 120, 1920, 1080, VIEWER_PAD_FULLSCREEN), 0.3);
   // still never enlarges
   assert.equal(fitScaleFor(400, 300, 0, 1920, 1080, VIEWER_PAD_FULLSCREEN), 1);
+});
+
+test("a video in full screen keeps the caption band free, so the zoom label matches what is drawn", () => {
+  // win: 1920x1080 video, full screen, drawn 1842x1036 (= 1036/1080); the label said 100%
+  assert.equal(fitScaleFor(1920, 1080, 0, 1920, 1080, viewerPad(true, true)), 1036 / 1080);
+  assert.deepEqual(viewerPad(true, false), VIEWER_PAD_FULLSCREEN);
+  assert.deepEqual(viewerPad(false, true), VIEWER_PAD);
+  assert.deepEqual(viewerPad(false, false), VIEWER_PAD);
+});
+
+test("the box a tile grows into uses the same pad as the viewer", () => {
+  const box = viewerBox([6000, 4000], 0, false, 1920, 1080, VIEWER_PAD_FULLSCREEN);
+  assert.deepEqual(box, { left: 150, top: 0, width: 1620, height: 1080 });
+});
+
+test("the pads match App.css", () => {
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+  const block = (sel: string) => {
+    const i = css.indexOf(`\n${sel} {`);
+    assert.ok(i >= 0, sel);
+    return css.slice(i, css.indexOf("}", i));
+  };
+  const px = (b: string, name: string) => Number(new RegExp(`${name}:\\s*(\\d+)px`).exec(b)?.[1]);
+  const viewer = block(".viewer");
+  const fs = block(".viewer.fullscreen");
+  assert.equal(px(viewer, "--viewer-pad-x"), VIEWER_PAD.x);
+  assert.equal(px(viewer, "--viewer-pad-y"), VIEWER_PAD.y);
+  assert.equal(px(fs, "--viewer-pad-x"), VIEWER_PAD_FULLSCREEN.x);
+  assert.equal(px(fs, "--viewer-pad-y"), VIEWER_PAD_FULLSCREEN.y);
+  assert.equal(px(viewer, "--caption-h"), VIEWER_PAD_FULLSCREEN_VIDEO.y);
+  assert.match(block(".viewer.fullscreen .viewer-video"), /max-height:\s*calc\(100vh - var\(--caption-h\)\)/);
 });
