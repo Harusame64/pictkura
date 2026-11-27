@@ -81,6 +81,9 @@ export function VideoBar({
     if (!speedOpen) return;
     const close = (e: PointerEvent) => {
       if (e.target instanceof Node && speedWrap.current?.contains(e.target)) return;
+      // 手前に幕（パレット・設定）が開いてビューアが inert なら、押下はその幕のもの。ここで閉じてクリックを
+      // 飲むと、幕のボタンの 1 回目が効かなかった（#378 の codex。Esc と同じ決まり）
+      if (speedWrap.current?.closest("[inert]")) return;
       setSpeedOpen(false);
       // 外を押したら、一覧を閉じるだけにする——その押下のクリックは地にも動画にも届けない。届けると、地なら
       // ビューアまで閉じ、動画なら再生が始まった（#378 の win の実機）。押して離した後のクリック 1 回だけを受け止める
