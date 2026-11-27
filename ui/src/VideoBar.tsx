@@ -39,9 +39,9 @@ export function VideoBar({
   const [speedOpen, setSpeedOpen] = useState(false);
   // つまみを引いている間は、再生の進み（timeupdate）でつまみを引き戻さない
   const scrubbing = useRef(false);
-  // 速度のボタン・一覧の上の押下。外を押したら閉じる受け口（window の pointerdown）が、これだけは見送る。
-  // 押下の伝わりを止めると、ビューアの「動いたら道具を出し直す」受け口まで止まった（#378 の /code-review）
-  const menuPress = useRef(false);
+  // 速度のボタンと一覧を包む箱。外を押したかは、印ではなく押した先がこの中かで決める——印は、バーが押下の
+  // 伝わりを止めると消されずに残り、次の外の押下を見送った（#378 の codex）
+  const speedWrap = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     // 次の動画へ移ったら、開いていた速度の一覧とつまみの引きは持ち越さない
@@ -79,11 +79,8 @@ export function VideoBar({
   // 速度の一覧は、外を押すか Esc で閉じる（Esc はビューアを閉じる前にここが取る）
   useEffect(() => {
     if (!speedOpen) return;
-    const close = () => {
-      if (menuPress.current) {
-        menuPress.current = false;
-        return;
-      }
+    const close = (e: PointerEvent) => {
+      if (e.target instanceof Node && speedWrap.current?.contains(e.target)) return;
       setSpeedOpen(false);
       // 外を押したら、一覧を閉じるだけにする——その押下のクリックは地にも動画にも届けない。届けると、地なら
       // ビューアまで閉じ、動画なら再生が始まった（#378 の win の実機）。押して離した後のクリック 1 回だけを受け止める
@@ -103,14 +100,18 @@ export function VideoBar({
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // ビューアの上に別の幕（パレット・設定）が開いて、ビューアが inert になっているなら、Esc はその幕のもの
+      // （#378 の codex: 奥の一覧が先に取り、手前の幕が 1 回目の Esc で閉じなかった）
+      if (speedWrap.current?.closest("[inert]")) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       setSpeedOpen(false);
     };
-    window.addEventListener("pointerdown", close);
+    // capture で見る——バーの押下は伝わりを止める（地へ届けない）ので、bubble では外か中かを見られない
+    window.addEventListener("pointerdown", close, true);
     window.addEventListener("keydown", onKey, true);
     return () => {
-      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("pointerdown", close, true);
       window.removeEventListener("keydown", onKey, true);
     };
   }, [speedOpen]);
@@ -239,27 +240,18 @@ export function VideoBar({
           video.muted = v === 0;
         }}
       />
-      <span className="vbar-speed-wrap">
+      <span className="vbar-speed-wrap" ref={speedWrap}>
         <button
           className={"vbar-btn vbar-speed" + (rate !== 1 ? " changed" : "")}
           title={t.videoSpeed}
           aria-label={t.videoSpeed}
           aria-expanded={speedOpen}
           onClick={() => setSpeedOpen((o) => !o)}
-          // 開いたまま外を押すと閉じる（window の pointerdown）。このボタン自身の押下では閉じない
-          onPointerDown={() => {
-            menuPress.current = true;
-          }}
         >
           {rate === 1 ? <Icon name="speed" size={18} /> : <span className="vbar-rate">{formatSpeed(rate, num)}</span>}
         </button>
         {speedOpen && (
-          <div
-            className="vbar-menu"
-            onPointerDown={() => {
-              menuPress.current = true;
-            }}
-          >
+          <div className="vbar-menu">
             {SPEEDS.map((s) => (
               <button
                 key={s}
