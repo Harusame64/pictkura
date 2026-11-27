@@ -6113,10 +6113,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       infoReserve,
       windowSize.w,
       windowSize.h,
-      // 全画面の動画は字幕の帯の分だけ下を空ける（win の実機: 引かないと札が 96% の絵に「100%」と出た）
-      viewerPad(anyFullscreen, viewerItem.is_video),
+      // 動画は字幕の帯の分だけ下を空ける（win の実機: 引かないと札が 96% の絵に「100%」と出た）
+      viewerPad(viewerItem.is_video),
     );
-  }, [viewerItem, servedNatural, windowSize, infoReserve, anyFullscreen]);
+  }, [viewerItem, servedNatural, windowSize, infoReserve]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
   const isActualSize = Math.abs(displayScale - 1) < 0.005;
@@ -7113,7 +7113,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           isRtl(),
           window.innerWidth,
           window.innerHeight,
-          viewerPad(anyFullscreen, opened.is_video),
+          viewerPad(opened.is_video),
         );
         setTileZoom(
           to
@@ -7139,7 +7139,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       toggleMany,
       openIdOf,
       infoReserve,
-      anyFullscreen,
       handTransition,
     ],
   );

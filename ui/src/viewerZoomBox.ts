@@ -5,18 +5,18 @@ export function boxOf(r: DOMRect): Box {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
-/** 写真のまわりに空ける幅（左右の合計・上下の合計）。CSS の `.viewer` の `--viewer-pad-x` / `--viewer-pad-y` と同じ値 */
-export const VIEWER_PAD = { x: 120, y: 80 };
-/** 全画面では空けない（道具は写真の上に重なり、マウスを止めると消える）。CSS の `.viewer.fullscreen` と同じ */
-export const VIEWER_PAD_FULLSCREEN = { x: 0, y: 0 };
-/** 全画面の動画は字幕の帯（`--caption-h`）の高さだけ下を空ける。CSS の `.viewer.fullscreen .viewer-video` と同じ */
-export const VIEWER_PAD_FULLSCREEN_VIDEO = { x: 0, y: 44 };
+/**
+ * 写真のまわりに空ける幅（左右の合計・上下の合計）。CSS の `.viewer` の `--viewer-pad-x` / `--viewer-pad-y` と同じ値。
+ * 窓でも全画面でも空けない——道具・送りボタン・下の帯は写真の上に重なり、マウスを止めると消える（#371 で全画面、
+ * 2026-11-27 利用者「ウィンドウ一杯に」で窓も）。前は窓だけ 120 / 80 を空けていた
+ */
+export const VIEWER_PAD = { x: 0, y: 0 };
+/** 動画は字幕の帯（`--caption-h`）の高さだけ下を空ける（操作バーを字幕に潜らせない）。CSS の `.viewer .viewer-video` と同じ */
+export const VIEWER_PAD_VIDEO = { x: 0, y: 44 };
 
-/** ビューアの今の空き。全画面か・動画かで決まる（CSS の `.viewer.fullscreen` と `.viewer.fullscreen .viewer-video`） */
-export function viewerPad(fullscreen: boolean, video: boolean): { x: number; y: number } {
-  // spike: 窓でも全画面と同じく余白なし（利用者 11-27「ウィンドウ一杯に」）。VIEWER_PAD は比べるために残す
-  void fullscreen;
-  return video ? VIEWER_PAD_FULLSCREEN_VIDEO : VIEWER_PAD_FULLSCREEN;
+/** ビューアの今の空き。動画かどうかだけで決まる（CSS の `.viewer` と `.viewer .viewer-video`） */
+export function viewerPad(video: boolean): { x: number; y: number } {
+  return video ? VIEWER_PAD_VIDEO : VIEWER_PAD;
 }
 
 /**
