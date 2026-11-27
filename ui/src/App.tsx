@@ -45,7 +45,16 @@ import { rankOsApps, suitsFile } from "./openWithApps";
 import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
-import { afterVideoEnded, isVideoOnlyFullscreen, nextScopeIndex, scopeStartIndex, type ViewerDir } from "./videoPlayOn";
+import {
+  afterVideoEnded,
+  isVideoOnlyFullscreen,
+  nextScopeIndex,
+  scopeStartIndex,
+  type ViewerDir,
+  wrapScopeIndex,
+  wrapsOntoItself,
+} from "./videoPlayOn";
+import { effectiveRepeat, loadVideoRepeat, nextRepeat, saveVideoRepeat, type VideoRepeat } from "./videoRepeat";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
@@ -3647,6 +3656,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     [viewerScopeFiles, pairOf, pairView],
   );
   /**
+   * 動画の再生リスト（終わったら次の動画へ続ける所。videoPlayOn.ts）。動画の終わり（`onEnded`）と繰り返しのボタンが
+   * ここ1か所を読む（写すと、ボタンが「すべて」を見せるのに続かない、が起きる。#372 の /code-review）。
+   * - 動画の絞り込み中（`videosOnly`）。**「このアプリで開く」の外のフォルダは数えない**——ビューアはそのフォルダを
+   *   歩くので、絞り込みが動画でも写真が並ぶ（#372 の /code-review。前から写真へ続いて止まっていた）
+   * - 選んだものだけで開いている（`videoInScope`）。外のフォルダは、複数を選んで開いたとき（`outsidePlaylist`）だけ
+   */
+  const videosOnlyList = kind === "video" && outsideItems === null;
+  const videoInScope = viewerScope !== null && (outsideItems === null || outsidePlaylist);
+  const videoPlaylist = videosOnlyList || videoInScope;
+  /** 動画の繰り返し（videoRepeat.ts）。覚えた値と、いま効いている値（再生リストが無ければ「すべて」はオフ） */
+  const [videoRepeatMode, setVideoRepeatMode] = useState<VideoRepeat>(() => loadVideoRepeat());
+  const videoRepeat = effectiveRepeat(videoRepeatMode, videoPlaylist);
+  const cycleVideoRepeat = useCallback(() => {
+    setVideoRepeatMode((m) => {
+      const next = nextRepeat(m, videoPlaylist);
+      saveVideoRepeat(next);
+      return next;
+    });
+  }, [videoPlaylist]);
+  /**
    * 列の中で `id` が居る位置。**列に居ない組の片方なら、列に居る相手の位置**
    * ——一覧のタイルは表紙の JPEG の id で開くので、RAW だけのときはそこから RAW へ寄せる。
    * 切り替えボタンで側を替えたときも、いま見ている組の反対側へ寄る
@@ -4567,12 +4596,25 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     },
     [viewerScope, viewerDayItems],
   );
+  /** 選んだものの列で、動画だけを歩くときに飛ばす席（消えた席と写真）。すべての動画を繰り返すとき（#372） */
+  const scopeVideoGone = useCallback(
+    (k: number) => scopeGone(k) || !viewerScope?.[k]?.is_video,
+    [scopeGone, viewerScope],
+  );
   /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
    */
   const moveViewer = useCallback(
-    (dir: 1 | -1, wrap = false, slideshow = false, remember = !slideshow) => {
+    (
+      dir: 1 | -1,
+      wrap = false,
+      slideshow = false,
+      remember = !slideshow,
+      // 選んだものの列で写真を飛ばし、動画だけを歩く（すべての動画を繰り返す。次へも端から戻るのも動画へ着く。
+      // #372 の win の実機: 戻る先の端が写真だと止まった）。スライドショーと手の送りは写真にも着くので偽
+      videosOnlyWalk = false,
+    ) => {
       if (!viewerInfo) return;
       // 送るときは向きを名乗る（送りの動き）。端で送れなかったときは名乗らない
       const go = (to: ViewerPos) => {
@@ -4587,7 +4629,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         // **一覧から消えた席は飛ばす**（ゲート2のP2）。⚑を外した・消したものが
         // 列には残っているので、そこへ歩くと行き止まりになる。
         // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
-        const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
+        const skip = videosOnlyWalk ? scopeVideoGone : scopeGone;
+        const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, skip);
         if (k >= 0) {
           const at = viewerScope[k];
           // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
@@ -4595,11 +4638,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           go({ dayKey: at.day_key, id: at.id });
           return;
         }
-        if (wrap && viewerScope.length > 0) {
-          const at = viewerScope[0];
-          // 先頭へ戻る（スライドショーの一周）ときも、その日が読めていなければ組の先頭へ寄せ直す（#168 の codex）
-          if (!viewerDayItems.has(at.day_key) && pairView === "both")
-            pendingOpenIdRef.current = { id: at.id, dir: 1 };
+        // 端から戻る: 向きの最初へ（スライドショーの一周は 1＝先頭、すべてを繰り返す動画は撮った順なら -1＝末尾）。
+        // 消えた席は飛ばす（送りと同じ歩き方。`wrapScopeIndex`）
+        const w = wrap ? wrapScopeIndex(viewerScope.length, dir, skip) : -1;
+        if (w >= 0) {
+          const at = viewerScope[w];
+          // 戻るときも、その日が読めていなければ組の来た向きの端へ寄せ直す（#168 の codex）
+          if (!viewerDayItems.has(at.day_key) && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
           go({ dayKey: at.day_key, id: at.id });
         }
         return;
@@ -4619,10 +4664,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           id: dir === 1 ? "first" : "last",
         });
       } else if (wrap && summary.length > 0) {
-        go({ dayKey: summary[0].day_key, id: "first" });
+        // 向きの最初へ（スライドショーは 1＝いちばん新しい日の頭、撮った順の繰り返しは -1＝いちばん古い日の尻）
+        if (dir === 1) go({ dayKey: summary[0].day_key, id: "first" });
+        else go({ dayKey: summary[summary.length - 1].day_key, id: "last" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav, scopeGone],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav, scopeGone, scopeVideoGone],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -6488,6 +6535,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         if (viewerItem) judgeViewer(viewerItem, false);
       } else if (judging(e, "i")) {
         setShowExif((s) => !s);
+      } else if (judging(e, "l")) {
+        // 動画の繰り返し（オフ → すべて → 1本）。動画を見ているときだけ
+        if (viewerItem?.is_video) cycleVideoRepeat();
       } else if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
@@ -6533,6 +6583,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     printSheetFor,
     toggleFullscreen,
     setWindowFullscreen,
+    cycleVideoRepeat,
     toggleActualSize,
     canExtract,
     canCopyImage,
@@ -9846,6 +9897,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
                 autoPlay
+                // 1本を繰り返す（videoRepeat.ts）。繰り返している間は終わりが来ないので `onEnded` は走らない。
+                // **スライドショー中は繰り返さない**——送りは動画の終わり（`onEnded`）を待つので、その動画で止まり続ける
+                // （#372 の /code-review）
+                loop={videoRepeat === "one" && !playing}
                 onClick={(e) => e.stopPropagation()}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -9857,14 +9912,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 }}
                 // スライドショー中は最後まで見せてから次へ送る。動画のフィルター中と、選んだものだけで開いているときは、
                 // スライドショーでなくても、終わったら最後に動かした向き（まだなら撮った順）へ続ける（dev #75）
-                onEnded={() => {
+                onEnded={(e) => {
                   const next = afterVideoEnded({
                     playing,
                     lastDir: lastMoveDirRef.current,
-                    videosOnly: kind === "video",
-                    // 選んだものだけで開いたとき（再生リスト）。「このアプリで開く」で 1 枚から並べたフォルダは
-                    // 選んだ物ではないので数えない。複数を選んで開いたときは選んだ物（`outsidePlaylist`）
-                    inScope: viewerScope !== null && (outsideItems === null || outsidePlaylist),
+                    // 再生リストの決め方は `videoPlaylist` の所に1か所だけ
+                    videosOnly: videosOnlyList,
+                    inScope: videoInScope,
                     curtainUp,
                     // 送りと同じ歩き方で着く先を見る（消えた席は飛ばす。`nextScopeIndex`）
                     nextIsVideo: (dir) => {
@@ -9872,8 +9926,35 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
                       return k >= 0 && viewerScope[k].is_video;
                     },
+                    // すべてを繰り返す（videoRepeat.ts）。選んだものでは写真を飛ばして動画だけを歩き、端では最初の動画へ
+                    repeatAll: videoRepeat === "all",
+                    hasVideo: () =>
+                      !!viewerScope && wrapScopeIndex(viewerScope.length, 1, scopeVideoGone) >= 0,
                   });
-                  if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);
+                  if (!next) return;
+                  // すべてを繰り返す端で、戻る先が今の動画そのもの（再生リストの動画が1本）なら、送っても同じ席で
+                  // 何も作り直されず止まる——頭から流し直す（#372 の /code-review）
+                  // 端に着いたときだけ見る（`wrapsOntoItself`）
+                  if (next.wrap && !next.slideshow) {
+                    const scope = viewerScope;
+                    const same = wrapsOntoItself({
+                      scope: scope ? { length: scope.length, idAt: (k) => scope[k].id } : null,
+                      from: scopeIdx,
+                      dir: next.dir,
+                      // 動画だけを歩く（送りの `videosOnlyWalk` と同じ歩き方）
+                      gone: scopeVideoGone,
+                      currentId: viewerItem.id,
+                      total: totalShown,
+                    });
+                    if (same) {
+                      e.currentTarget.currentTime = 0;
+                      void e.currentTarget.play().catch(() => {});
+                      return;
+                    }
+                  }
+                  // すべてを繰り返すときは動画だけを歩く（写真で止まらない）。**スライドショーは写真にも着く**——動画だけを
+                  // 歩くと写真を見せず、動画が1本なら同じ席へ戻って止まった（#372 の codex）
+                  moveViewer(next.dir, next.wrap, next.slideshow, false, videoRepeat === "all" && !next.slideshow);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
@@ -10602,6 +10683,24 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               >
                 <Icon name={playing ? "pause" : "play"} size={20} className={playing ? undefined : "filled"} />
               </button>
+              {/* 動画の繰り返し（videoRepeat.ts）。押すたびに オフ → すべて → 1本。再生リストが無いと オフ ⇔ 1本 */}
+              {viewerItem?.is_video && (
+                <button
+                  className={"viewer-tool" + (videoRepeat !== "off" ? " on" : "")}
+                  title={
+                    videoRepeat === "all"
+                      ? t.viewerRepeatAll
+                      : videoRepeat === "one"
+                        ? t.viewerRepeatOne
+                        : t.viewerRepeatOff
+                  }
+                  id="pk-viewer-repeat" data-testid="viewer-repeat"
+                  aria-pressed={videoRepeat !== "off"}
+                  onClick={cycleVideoRepeat}
+                >
+                  <Icon name={videoRepeat === "one" ? "repeatOne" : "repeat"} size={20} />
+                </button>
+              )}
               <button
                 className={"viewer-tool" + (anyFullscreen ? " on" : "")}
                 title={t.viewerFullscreen} id="pk-viewer-fullscreen" data-testid="viewer-fullscreen"

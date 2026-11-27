@@ -93,6 +93,8 @@ export const es419: Dict = {
 
   // Vídeo → Video（macOS 自身の綴り）
   kindVideo: "Videos",
+  viewerRepeatAll: "Repetir: todos los videos (L)",
+  viewerRepeatOne: "Repetir: este video (L)",
   videoCloudOnly: "Este video está en la nube",
   videoFailed: "No se ha podido reproducir este video",
   videoCodecNote:
@@ -192,6 +194,7 @@ export const es419: Dict = {
         ["I", "Datos del archivo y de la toma (cámara, objetivo, diafragma, obturación, ISO, distancia focal, GPS)"],
         ["Espacio", "Pase de diapositivas. En un video, reproducir / pausar"],
         ["1 / 0", "1 alterna entre tamaño real 100 % y ajustar a la ventana; 0 siempre ajusta"],
+        ["L", "Repetir videos (desactivado → todos los videos → este video)"],
         ["F11", "Pantalla completa"],
         ["Esc", "Cerrar"],
       ],
