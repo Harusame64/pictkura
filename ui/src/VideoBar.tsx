@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { t } from "./i18n";
+import { num } from "./i18n/plural";
 import { SKIP_SECONDS, SPEEDS, canSeek, formatSpeed, formatTime, seekTarget } from "./videoControls";
 
 /**
@@ -38,8 +39,14 @@ export function VideoBar({
   const [speedOpen, setSpeedOpen] = useState(false);
   // つまみを引いている間は、再生の進み（timeupdate）でつまみを引き戻さない
   const scrubbing = useRef(false);
+  // 速度のボタン・一覧の上の押下。外を押したら閉じる受け口（window の pointerdown）が、これだけは見送る。
+  // 押下の伝わりを止めると、ビューアの「動いたら道具を出し直す」受け口まで止まった（#378 の /code-review）
+  const menuPress = useRef(false);
 
   useEffect(() => {
+    // 次の動画へ移ったら、開いていた速度の一覧とつまみの引きは持ち越さない
+    setSpeedOpen(false);
+    scrubbing.current = false;
     if (!video) return;
     const sync = () => {
       setPaused(video.paused);
@@ -72,7 +79,13 @@ export function VideoBar({
   // 速度の一覧は、外を押すか Esc で閉じる（Esc はビューアを閉じる前にここが取る）
   useEffect(() => {
     if (!speedOpen) return;
-    const close = () => setSpeedOpen(false);
+    const close = () => {
+      if (menuPress.current) {
+        menuPress.current = false;
+        return;
+      }
+      setSpeedOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -216,28 +229,33 @@ export function VideoBar({
           className={"vbar-btn vbar-speed" + (rate !== 1 ? " changed" : "")}
           title={t.videoSpeed}
           aria-label={t.videoSpeed}
-          aria-haspopup="menu"
           aria-expanded={speedOpen}
           onClick={() => setSpeedOpen((o) => !o)}
-          // 開いたまま外を押すと閉じる（window の pointerdown）。このボタン自身の押下は閉じる側へ流さない
-          onPointerDown={(e) => e.nativeEvent.stopImmediatePropagation()}
+          // 開いたまま外を押すと閉じる（window の pointerdown）。このボタン自身の押下では閉じない
+          onPointerDown={() => {
+            menuPress.current = true;
+          }}
         >
-          {rate === 1 ? <Icon name="speed" size={18} /> : <span className="vbar-rate">{formatSpeed(rate)}</span>}
+          {rate === 1 ? <Icon name="speed" size={18} /> : <span className="vbar-rate">{formatSpeed(rate, num)}</span>}
         </button>
         {speedOpen && (
-          <div className="vbar-menu" role="menu" onPointerDown={(e) => e.nativeEvent.stopImmediatePropagation()}>
+          <div
+            className="vbar-menu"
+            onPointerDown={() => {
+              menuPress.current = true;
+            }}
+          >
             {SPEEDS.map((s) => (
               <button
                 key={s}
-                role="menuitemradio"
-                aria-checked={s === rate}
+                aria-pressed={s === rate}
                 className={"vbar-menu-item" + (s === rate ? " on" : "")}
                 onClick={() => {
                   video.playbackRate = s;
                   setSpeedOpen(false);
                 }}
               >
-                {s === 1 ? t.videoSpeedNormal : formatSpeed(s)}
+                {s === 1 ? t.videoSpeedNormal : formatSpeed(s, num)}
               </button>
             ))}
           </div>

@@ -203,7 +203,7 @@ export const es: Dict = {
   viewerRepeatAll: "Repetir: todos los vídeos (L)",
   viewerRepeatOne: "Repetir: este vídeo (L)",
   videoPlay: "Reproducir (Espacio)",
-  videoPause: "Pausa (Espacio)",
+  videoPause: "Pausar (Espacio)",
   videoBack: (n: number) => `Retroceder ${num(n)} segundos`,
   videoForward: (n: number) => `Avanzar ${num(n)} segundos`,
   videoSeek: "Posición de reproducción",

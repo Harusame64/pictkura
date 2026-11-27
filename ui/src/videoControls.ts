@@ -46,7 +46,7 @@ export function afterVolumeKey(state: { volume: number; muted: boolean }, delta:
   return { volume, muted: delta > 0 ? false : state.muted };
 }
 
-/** 速度の表示（1 は呼ぶ側が「標準」と出す） */
-export function formatSpeed(rate: number): string {
-  return `${rate}×`;
+/** 速度の表示（1 は呼ぶ側が「標準」と出す）。数は言語の書き方で（`num`。独語なら 1,5×） */
+export function formatSpeed(rate: number, num: (n: number) => string = String): string {
+  return `${num(rate)}×`;
 }

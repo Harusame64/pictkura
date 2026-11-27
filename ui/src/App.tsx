@@ -5375,6 +5375,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const swallowClickRef = useRef(false);
   /** 止めたクリックが、消えた UI の上だったか（そのクリックで UI を出す。dev #75） */
   const hiddenUiClickRef = useRef(false);
+  /**
+   * 押下の時点で止めると決めたクリックなら、ここで受け止めて真を返す（消えた UI の上なら UI を出す）。地のクリックと、
+   * 地へ届かない動画の箱のクリックの両方が使う——箱で止めずに素通しすると印が残り、次に地を押しても閉じなかった
+   * （#378 の /code-review）
+   */
+  const consumeSwallowedClick = useCallback(() => {
+    if (!swallowClickRef.current) return false;
+    swallowClickRef.current = false;
+    //消えた UI の上のクリックは、UI を出すだけ。押した瞬間に出すと当たり判定が離す前に戻り、
+    //動画のつまみを押した手が帯の上で離れて、クリックが別の所へ行く（ゲート2）
+    if (hiddenUiClickRef.current) {
+      hiddenUiClickRef.current = false;
+      setViewerIdle(false);
+    }
+    return true;
+  }, []);
   const transitionAnimsRef = useRef<Animation[]>([]);
   /**
    * 次の絵が**描ける**か——原寸のデコードが済んだ（か出せないと分かった）、または下敷きが出た。
@@ -6529,6 +6545,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (inBar) {
         const range = (e.target as HTMLElement).tagName === "INPUT";
         if (range && e.key.startsWith("Arrow")) return;
+        // 速度の一覧の中では矢印を音量や送りに回さない（一覧は Tab で回る）
+        if ((e.target as HTMLElement).closest(".vbar-menu") && e.key.startsWith("Arrow")) return;
         if (!range && (e.key === " " || e.key === "Enter")) return;
       }
       const video = viewerItem?.is_video ? videoRef.current : null;
@@ -9857,16 +9875,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           // 持たず、台は画面の外から入ってくる途中か透明なので、写真を押した手は地に落ちる
           // （ゲート2・codex）。残像で受け止める形は、フェードでは上に居る台に先を取られた
           onClick={() => {
-            if (swallowClickRef.current) {
-              swallowClickRef.current = false;
-              //消えた UI の上のクリックは、UI を出すだけ。押した瞬間に出すと当たり判定が離す前に戻り、
-              //動画のつまみを押した手が帯の上で離れて、クリックが別の所へ行く（ゲート2）
-              if (hiddenUiClickRef.current) {
-                hiddenUiClickRef.current = false;
-                setViewerIdle(false);
-              }
-              return;
-            }
+            if (consumeSwallowedClick()) return;
             if (!transitioning) requestCloseViewer();
           }}
           // **動いている最中に押したら、動きを即座に終わらせてから効かせる**（2026-09-27 の
@@ -9921,7 +9930,24 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               <div className="viewer-loading">{t.loading}</div>
             ) : playingVideo ? (
               // 動画と自作の再生バーを1つの箱に。バーは動画の下端に重ねる（VideoBar.tsx。標準の `controls` は使わない）
-              <div className="viewer-video-box" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="viewer-video-box"
+                // 地へは届けない（閉じない）。動画の本体を押すと再生／一時停止（標準のバーのときと同じ）。ただし動きの最中・
+                // 消えた UI の上の押下は、それだけで済ませる（地と同じ決まり。`consumeSwallowedClick`）
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (consumeSwallowedClick()) return;
+                  const v = videoRef.current;
+                  if (!v || e.target !== v) return;
+                  if (v.paused) void v.play().catch(() => {});
+                  else v.pause();
+                }}
+                // 二度押しで全画面（標準のバーのときと同じ）
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (e.target === videoRef.current) toggleFullscreen();
+                }}
+              >
               <video
                 // idをkeyにして、次の動画へ進んだときに要素を作り直す
                 // （src差し替えだけだと前の再生位置やバッファが残る）
@@ -9939,13 +9965,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 // **スライドショー中は繰り返さない**——送りは動画の終わり（`onEnded`）を待つので、その動画で止まり続ける
                 // （#372 の /code-review）
                 loop={videoRepeat === "one" && !playing}
-                // 動画の本体を押すと再生／一時停止（標準のバーのときと同じ）。地へは届けない（閉じない）
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const v = e.currentTarget;
-                  if (v.paused) void v.play().catch(() => {});
-                  else v.pause();
-                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

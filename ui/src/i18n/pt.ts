@@ -191,7 +191,7 @@ export const pt: Dict = {
   videoPause: "Pausar (Espaço)",
   videoBack: (n: number) => `Voltar ${num(n)} segundos`,
   videoForward: (n: number) => `Avançar ${num(n)} segundos`,
-  videoSeek: "Posição da reprodução",
+  videoSeek: "Posição de reprodução",
   videoMute: "Silenciar (M)",
   videoUnmute: "Ativar som (M)",
   videoVolume: "Volume (↑ / ↓)",
