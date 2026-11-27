@@ -4805,8 +4805,12 @@ html.viewer-only .app > .select-bar {
   /* 狭い動画では部品を減らす（下の @container） */
   container-type: inline-size;
 }
-.viewer-vbar .vbar-seek,
-.viewer-vbar .vbar-group {
+/* 受けるのは見えている間だけ。消えている間（idle）は、子に auto を書くと親の none を上書きして、見えない再生ボタンや
+   帯が押せた（#379 の codex）。速度の一覧を開いている間は消さないので、そのときは受ける */
+.viewer:not(.idle) .viewer-vbar .vbar-seek,
+.viewer:not(.idle) .viewer-vbar .vbar-group,
+.viewer.idle .viewer-vbar:has(.vbar-menu) .vbar-seek,
+.viewer.idle .viewer-vbar:has(.vbar-menu) .vbar-group {
   pointer-events: auto;
 }
 /* 下から暗くなる帯は、動画の箱の中だけに描く（バーは 520px まで広がるので、バーに描くと細い動画の外へはみ出した）。
