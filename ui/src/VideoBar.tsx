@@ -42,6 +42,8 @@ export function VideoBar({
   // 速度のボタンと一覧を包む箱。外を押したかは、印ではなく押した先がこの中かで決める——印は、バーが押下の
   // 伝わりを止めると消されずに残り、次の外の押下を見送った（#378 の codex）
   const speedWrap = useRef<HTMLSpanElement>(null);
+  // バーそのもの。一覧を開いたままバーの別の部品（再生・つまみ）を押したら、一覧を閉じてその部品も効かせる
+  const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // 次の動画へ移ったら、開いていた速度の一覧とつまみの引きは持ち越さない
@@ -85,7 +87,9 @@ export function VideoBar({
       // 飲むと、幕のボタンの 1 回目が効かなかった（#378 の codex。Esc と同じ決まり）
       if (speedWrap.current?.closest("[inert]")) return;
       setSpeedOpen(false);
-      // 外を押したら、一覧を閉じるだけにする——その押下のクリックは地にも動画にも届けない。届けると、地なら
+      // バーの中の別の部品なら、閉じてそのまま効かせる（再生を 2 回押させない。つまみはそこへ動く。#378 の codex）
+      if (e.target instanceof Node && barRef.current?.contains(e.target)) return;
+      // バーの外を押したら、一覧を閉じるだけにする——その押下のクリックは地にも動画にも届けない。届けると、地なら
       // ビューアまで閉じ、動画なら再生が始まった（#378 の win の実機）。押して離した後のクリック 1 回だけを受け止める
       const eat = (e: MouseEvent) => {
         e.stopPropagation();
@@ -139,6 +143,7 @@ export function VideoBar({
 
   return (
     <div
+      ref={barRef}
       className="viewer-vbar"
       dir="ltr"
       // 地のクリック（ビューアを閉じる）・右クリックのメニュー・送りの動きへ届けない
