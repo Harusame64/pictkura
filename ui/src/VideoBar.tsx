@@ -142,10 +142,9 @@ export function VideoBar({
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        holdFocusUntilRelease();
-      }}
+      // 押下は止めない——window の「動いたら道具を出し直す」受け口（App.tsx の wakePointer）まで届かないと、
+      // 速度の一覧を開いて手を止めた間にバーごと消えた（#378 の win の実機）。地へ届けないのはクリックの方（上）
+      onPointerDown={holdFocusUntilRelease}
     >
       <button
         className="vbar-btn"
