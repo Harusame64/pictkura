@@ -371,6 +371,9 @@ answer to their English names whatever language the app is in.
 | `Ctrl` + `P` | print the photo on screen (`⌘` on macOS) |
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `L` | repeat videos (off → all videos → this video) |
+| `Shift`+`←` `→` | video: back or forward 5 seconds |
+| `↑` `↓` | video: volume up or down |
+| `M` | video: mute or unmute |
 | `F11` | full screen |
 | `Esc` | close (in full screen, the first press leaves full screen) |
 | `?` / `F1` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
