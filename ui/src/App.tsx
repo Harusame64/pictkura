@@ -52,6 +52,7 @@ import {
   scopeStartIndex,
   type ViewerDir,
   wrapScopeIndex,
+  wrapsOntoItself,
 } from "./videoPlayOn";
 import { effectiveRepeat, loadVideoRepeat, nextRepeat, saveVideoRepeat, type VideoRepeat } from "./videoRepeat";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
@@ -9907,9 +9908,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                   if (!next) return;
                   // すべてを繰り返す端で、戻る先が今の動画そのもの（再生リストの動画が1本）なら、送っても同じ席で
                   // 何も作り直されず止まる——頭から流し直す（#372 の /code-review）
+                  // 端に着いたときだけ見る（`wrapsOntoItself`）
                   if (next.wrap && !next.slideshow) {
-                    const k = viewerScope ? wrapScopeIndex(viewerScope.length, next.dir, scopeGone) : -1;
-                    const same = viewerScope ? k >= 0 && viewerScope[k].id === viewerItem.id : totalShown === 1;
+                    const scope = viewerScope;
+                    const same = wrapsOntoItself({
+                      scope: scope ? { length: scope.length, idAt: (k) => scope[k].id } : null,
+                      from: scopeIdx,
+                      dir: next.dir,
+                      gone: scopeGone,
+                      currentId: viewerItem.id,
+                      total: totalShown,
+                    });
                     if (same) {
                       e.currentTarget.currentTime = 0;
                       void e.currentTarget.play().catch(() => {});

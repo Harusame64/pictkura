@@ -47,6 +47,30 @@ export function afterVideoEnded(s: {
 }
 
 /**
+ * すべてを繰り返して端から戻る先が、いま終わった動画そのものか（再生リストに残る動画が1本）。そのときは送っても同じ席で
+ * 何も作り直されず止まるので、呼ぶ側は頭から流し直す（#372 の /code-review と codex）。
+ * **端に着いたときだけ真**——動画の絞り込み中は `wrap` がいつも立つ（送りの側が端でだけ戻る）ので、先がまだあるのに
+ * 真を返すと、選んだ動画の1本目を流し直し続けて進まなかった（#372 の codex）。
+ * 選んだものの列（`scope`）が無ければ一覧を歩く: 一覧が1枚のときだけ真
+ */
+export function wrapsOntoItself(s: {
+  scope: { length: number; idAt: (k: number) => number } | null;
+  /** 列の中のいまの位置 */
+  from: number | undefined;
+  dir: ViewerDir;
+  gone: (k: number) => boolean;
+  currentId: number;
+  /** 一覧の枚数（列が無いとき） */
+  total: number;
+}): boolean {
+  if (!s.scope) return s.total === 1;
+  if (s.from === undefined) return false;
+  if (nextScopeIndex(s.scope.length, s.from, s.dir, s.gone) >= 0) return false;
+  const k = wrapScopeIndex(s.scope.length, s.dir, s.gone);
+  return k >= 0 && s.scope.idAt(k) === s.currentId;
+}
+
+/**
  * 端から戻るときの着く位置（列の `dir` の向きの最初。消えた席は飛ばす）。`dir` が 1 なら頭から、-1 なら尻から歩く。
  * 着く先が無ければ -1。スライドショーの一周（`dir` は 1）と、すべてを繰り返す（撮った順なら -1）が同じ歩き方をする
  */
