@@ -9933,8 +9933,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       return;
                     }
                   }
-                  // すべてを繰り返すときは動画だけを歩く（写真で止まらない）
-                  moveViewer(next.dir, next.wrap, next.slideshow, false, videoRepeat === "all");
+                  // すべてを繰り返すときは動画だけを歩く（写真で止まらない）。**スライドショーは写真にも着く**——動画だけを
+                  // 歩くと写真を見せず、動画が1本なら同じ席へ戻って止まった（#372 の codex）
+                  moveViewer(next.dir, next.wrap, next.slideshow, false, videoRepeat === "all" && !next.slideshow);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
