@@ -85,6 +85,21 @@ export function VideoBar({
         return;
       }
       setSpeedOpen(false);
+      // 外を押したら、一覧を閉じるだけにする——その押下のクリックは地にも動画にも届けない。届けると、地なら
+      // ビューアまで閉じ、動画なら再生が始まった（#378 の win の実機）。押して離した後のクリック 1 回だけを受け止める
+      const eat = (e: MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+      };
+      const done = () => {
+        window.removeEventListener("pointerup", done, true);
+        window.removeEventListener("pointercancel", done, true);
+        // クリックは pointerup の後に来る。その後で外す（ドラッグで終わってクリックが来なくても残らない）
+        setTimeout(() => window.removeEventListener("click", eat, true), 0);
+      };
+      window.addEventListener("click", eat, true);
+      window.addEventListener("pointerup", done, true);
+      window.addEventListener("pointercancel", done, true);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
