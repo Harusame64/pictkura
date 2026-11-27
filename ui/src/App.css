@@ -4782,14 +4782,16 @@ html.viewer-only .app > .select-bar {
 
 /* 自作の再生バー（VideoBar.tsx）。YouTube の形に寄せる（11-27 利用者「細くて小さい、YouTube に寄せて」）:
    動画の下端に幅いっぱいで重ね、下から暗くなるグラデーションを敷く。上の段に再生位置の帯（幅いっぱい・触ると太る）、
-   下の段に左の塊（再生・10 秒・音量・時間）と右の塊（速度・PiP・全画面）。動画が小さいときは 480px まで広げて
+   下の段に左の塊（再生・10 秒・音量・時間）と右の塊（速度・PiP・全画面）。動画が小さいときは 520px まで広げて
    真ん中に置く（はみ出しても左右に均等）。時間は左→右に流れるので、右→左の画面でも並びは裏返さない（標準のバーと同じ） */
 .viewer-vbar {
   position: absolute;
   bottom: 0;
   inset-inline: -100vw;
   margin-inline: auto;
-  width: max(100%, 480px);
+  /* 最小 520px: 音量のつまみを畳んだ形で、1 時間を超える動画の時間（1:00:00 / 1:00:00）と速度の札（1.25×）が
+     入っても左右の塊が重ならない幅（#379 の codex。480 では足りなかった） */
+  width: max(100%, 520px);
   display: flex;
   flex-direction: column;
   padding: 0 var(--sp-3) var(--sp-1);
@@ -4807,7 +4809,7 @@ html.viewer-only .app > .select-bar {
 .viewer-vbar .vbar-group {
   pointer-events: auto;
 }
-/* 下から暗くなる帯は、動画の箱の中だけに描く（バーは 480px まで広がるので、バーに描くと細い動画の外へはみ出した）。
+/* 下から暗くなる帯は、動画の箱の中だけに描く（バーは 520px まで広がるので、バーに描くと細い動画の外へはみ出した）。
    道具と一緒に消える */
 .viewer-video-box::after {
   content: "";
@@ -4883,8 +4885,8 @@ html.viewer-only .app > .select-bar {
   width: 80px;
 }
 /* 狭い動画（縦長の動画など）では、音量のつまみを畳む。ミュートのボタンと ↑ ↓ は残る（#379 の /code-review:
-   480px では部品の合計が幅を超え、左右の塊が重なった） */
-@container (max-width: 560px) {
+   480px では部品の合計が幅を超え、左右の塊が重なった。つまみ込みの全部が入るのは 600px から） */
+@container (max-width: 600px) {
   .vbar-volume {
     display: none;
   }
