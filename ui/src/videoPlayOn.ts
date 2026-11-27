@@ -18,7 +18,8 @@ export type ViewerDir = 1 | -1;
  * /code-review）。動画のフィルター中は並ぶのがみな動画なので、訊かなくてよい
  *
  * **すべてを繰り返す**（`repeatAll`、videoRepeat.ts）ときは、端で止まらず流してきた向きの最初へ戻る（`wrap`）。
- * 選んだものでは、端に着いたとき（`atEnd`）に戻る先が動画のときだけ戻る（`wrapIsVideo`。写真で止まらない）
+ * 選んだものでは**写真を飛ばして動画だけを歩く**（呼ぶ側は送りに `videosOnlyWalk` を渡す）——次が写真でも、端の先が
+ * 写真でも止まらない（#372 の win の実機: 戻る先の端が写真で止まった）。列に動画が1本も無ければ送らない（`hasVideo`）
  */
 export function afterVideoEnded(s: {
   playing: boolean;
@@ -30,10 +31,8 @@ export function afterVideoEnded(s: {
   nextIsVideo: (dir: ViewerDir) => boolean;
   /** すべてを繰り返すか（再生リストがあるときだけ真になる。`effectiveRepeat`） */
   repeatAll?: boolean;
-  /** 選んだものの列で、その向きにもう先が無いか */
-  atEnd?: (dir: ViewerDir) => boolean;
-  /** 選んだものの列で、その向きの最初（戻る先）が動画か */
-  wrapIsVideo?: (dir: ViewerDir) => boolean;
+  /** 選んだものの列に、歩ける動画が1本でもあるか（消えた席は除く） */
+  hasVideo?: () => boolean;
 }): { dir: ViewerDir; wrap: boolean; slideshow: boolean } | null {
   if (s.playing) return { dir: 1, wrap: true, slideshow: true };
   if (!(s.videosOnly || s.inScope) || s.curtainUp) return null;
@@ -41,8 +40,9 @@ export function afterVideoEnded(s: {
   const repeatAll = s.repeatAll === true;
   // 動画の絞り込み中は並ぶのがみな動画。繰り返すなら端で最初へ戻る（送りの側が端でだけ戻る）
   if (s.videosOnly) return { dir, wrap: repeatAll, slideshow: false };
+  // 選んだもの: 繰り返すなら動画だけを歩き、端では最初の動画へ（送りの側が動画だけを歩く）
+  if (repeatAll) return s.hasVideo?.() ? { dir, wrap: true, slideshow: false } : null;
   if (s.nextIsVideo(dir)) return { dir, wrap: false, slideshow: false };
-  if (repeatAll && s.atEnd?.(dir) && s.wrapIsVideo?.(dir)) return { dir, wrap: true, slideshow: false };
   return null;
 }
 

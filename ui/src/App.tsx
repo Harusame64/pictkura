@@ -4595,12 +4595,25 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     },
     [viewerScope, viewerDayItems],
   );
+  /** 選んだものの列で、動画だけを歩くときに飛ばす席（消えた席と写真）。すべての動画を繰り返すとき（#372） */
+  const scopeVideoGone = useCallback(
+    (k: number) => scopeGone(k) || !viewerScope?.[k]?.is_video,
+    [scopeGone, viewerScope],
+  );
   /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
    */
   const moveViewer = useCallback(
-    (dir: 1 | -1, wrap = false, slideshow = false, remember = !slideshow) => {
+    (
+      dir: 1 | -1,
+      wrap = false,
+      slideshow = false,
+      remember = !slideshow,
+      // 選んだものの列で写真を飛ばし、動画だけを歩く（すべての動画を繰り返す。次へも端から戻るのも動画へ着く。
+      // #372 の win の実機: 戻る先の端が写真だと止まった）。スライドショーと手の送りは写真にも着くので偽
+      videosOnlyWalk = false,
+    ) => {
       if (!viewerInfo) return;
       // 送るときは向きを名乗る（送りの動き）。端で送れなかったときは名乗らない
       const go = (to: ViewerPos) => {
@@ -4615,7 +4628,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         // **一覧から消えた席は飛ばす**（ゲート2のP2）。⚑を外した・消したものが
         // 列には残っているので、そこへ歩くと行き止まりになる。
         // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
-        const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
+        const skip = videosOnlyWalk ? scopeVideoGone : scopeGone;
+        const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, skip);
         if (k >= 0) {
           const at = viewerScope[k];
           // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
@@ -4625,7 +4639,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         }
         // 端から戻る: 向きの最初へ（スライドショーの一周は 1＝先頭、すべてを繰り返す動画は撮った順なら -1＝末尾）。
         // 消えた席は飛ばす（送りと同じ歩き方。`wrapScopeIndex`）
-        const w = wrap ? wrapScopeIndex(viewerScope.length, dir, scopeGone) : -1;
+        const w = wrap ? wrapScopeIndex(viewerScope.length, dir, skip) : -1;
         if (w >= 0) {
           const at = viewerScope[w];
           // 戻るときも、その日が読めていなければ組の来た向きの端へ寄せ直す（#168 の codex）
@@ -4654,7 +4668,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         else go({ dayKey: summary[summary.length - 1].day_key, id: "last" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav, scopeGone],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav, scopeGone, scopeVideoGone],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -9893,17 +9907,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
                       return k >= 0 && viewerScope[k].is_video;
                     },
-                    // すべてを繰り返す（videoRepeat.ts）。端に着いたら、流してきた向きの最初へ戻る
+                    // すべてを繰り返す（videoRepeat.ts）。選んだものでは写真を飛ばして動画だけを歩き、端では最初の動画へ
                     repeatAll: videoRepeat === "all",
-                    atEnd: (dir) =>
-                      !!viewerScope &&
-                      scopeIdx !== undefined &&
-                      nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone) < 0,
-                    wrapIsVideo: (dir) => {
-                      if (!viewerScope) return false;
-                      const k = wrapScopeIndex(viewerScope.length, dir, scopeGone);
-                      return k >= 0 && viewerScope[k].is_video;
-                    },
+                    hasVideo: () =>
+                      !!viewerScope && wrapScopeIndex(viewerScope.length, 1, scopeVideoGone) >= 0,
                   });
                   if (!next) return;
                   // すべてを繰り返す端で、戻る先が今の動画そのもの（再生リストの動画が1本）なら、送っても同じ席で
@@ -9915,7 +9922,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       scope: scope ? { length: scope.length, idAt: (k) => scope[k].id } : null,
                       from: scopeIdx,
                       dir: next.dir,
-                      gone: scopeGone,
+                      // 動画だけを歩く（送りの `videosOnlyWalk` と同じ歩き方）
+                      gone: scopeVideoGone,
                       currentId: viewerItem.id,
                       total: totalShown,
                     });
@@ -9925,7 +9933,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       return;
                     }
                   }
-                  moveViewer(next.dir, next.wrap, next.slideshow, false);
+                  // すべてを繰り返すときは動画だけを歩く（写真で止まらない）
+                  moveViewer(next.dir, next.wrap, next.slideshow, false, videoRepeat === "all");
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}

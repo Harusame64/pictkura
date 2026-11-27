@@ -98,37 +98,40 @@ test("repeat all with the video filter: plays on and wraps at the end, in the sa
   assert.deepEqual(afterVideoEnded({ ...filtered, lastDir: 1, repeatAll: true }), { dir: 1, wrap: true, slideshow: false });
 });
 
-test("repeat all in a selection: wraps only at the end, and only onto a video", () => {
+test("repeat all in a selection walks videos only and wraps (never stops on a photo)", () => {
   const scoped = { ...filtered, videosOnly: false, inScope: true, repeatAll: true };
-  // まだ先がある: 今までどおり次へ（戻らない）
-  assert.deepEqual(afterVideoEnded({ ...scoped, lastDir: null, atEnd: () => false, wrapIsVideo: () => true }), {
-    dir: -1,
-    wrap: false,
-    slideshow: false,
-  });
-  // 端に着いた: 戻る先が動画なら最初へ
-  const atEnd = { ...scoped, nextIsVideo: () => false, atEnd: () => true };
-  assert.deepEqual(afterVideoEnded({ ...atEnd, lastDir: null, wrapIsVideo: () => true }), {
+  // win の升5: 次が写真でも、端の先が写真でも、動画があれば送る（送りの側が写真を飛ばして動画へ着く）
+  assert.deepEqual(afterVideoEnded({ ...scoped, nextIsVideo: () => false, lastDir: null, hasVideo: () => true }), {
     dir: -1,
     wrap: true,
     slideshow: false,
   });
-  // 戻る先が写真なら止まる（写真へ着いて止まる、にしない）
-  assert.equal(afterVideoEnded({ ...atEnd, lastDir: null, wrapIsVideo: () => false }), null);
-  // 次が写真で端でもない: 止まる（繰り返しでも写真を飛ばして先へは行かない）
-  assert.equal(
-    afterVideoEnded({ ...scoped, nextIsVideo: () => false, lastDir: null, atEnd: () => false, wrapIsVideo: () => true }),
-    null,
-  );
+  assert.deepEqual(afterVideoEnded({ ...scoped, nextIsVideo: () => true, lastDir: 1, hasVideo: () => true }), {
+    dir: 1,
+    wrap: true,
+    slideshow: false,
+  });
+  // 動画が残っていない（消えた）: 送らない
+  assert.equal(afterVideoEnded({ ...scoped, lastDir: null, hasVideo: () => false }), null);
+  assert.equal(afterVideoEnded({ ...scoped, curtainUp: true, lastDir: null, hasVideo: () => true }), null);
 });
 
 test("without repeat all, the end of the list still stops", () => {
   const scoped = { ...filtered, videosOnly: false, inScope: true };
-  assert.equal(
-    afterVideoEnded({ ...scoped, nextIsVideo: () => false, lastDir: null, atEnd: () => true, wrapIsVideo: () => true }),
-    null,
-  );
+  assert.equal(afterVideoEnded({ ...scoped, nextIsVideo: () => false, lastDir: null, hasVideo: () => true }), null);
   assert.deepEqual(afterVideoEnded({ ...filtered, lastDir: null }), { dir: -1, wrap: false, slideshow: false });
+});
+
+test("win's step 5: clip3, clip2, photo (newest first) — walking videos only, the end wraps past the photo", () => {
+  // 列: 0=clip3 1=clip2 2=写真。動画だけを歩く（写真は飛ばす席）
+  const isVideo = [true, true, false];
+  const skip = (k: number) => !isVideo[k];
+  // a) clip3（0）から撮った順（-1）: 先は無い → 戻る先は尻から歩いて最初の動画 = clip2（1）
+  assert.equal(nextScopeIndex(3, 0, -1, skip), -1);
+  assert.equal(wrapScopeIndex(3, -1, skip), 1);
+  // b) clip2（1）から古い側（1）: 次は写真なので飛ばして先が無い → 頭から最初の動画 = clip3（0）
+  assert.equal(nextScopeIndex(3, 1, 1, skip), -1);
+  assert.equal(wrapScopeIndex(3, 1, skip), 0);
 });
 
 test("wrapScopeIndex walks from the head for 1 and from the tail for -1, skipping gone seats", () => {
