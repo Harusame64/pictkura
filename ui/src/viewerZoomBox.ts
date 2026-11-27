@@ -14,7 +14,8 @@ export const VIEWER_PAD_FULLSCREEN_VIDEO = { x: 0, y: 44 };
 
 /** ビューアの今の空き。全画面か・動画かで決まる（CSS の `.viewer.fullscreen` と `.viewer.fullscreen .viewer-video`） */
 export function viewerPad(fullscreen: boolean, video: boolean): { x: number; y: number } {
-  if (!fullscreen) return VIEWER_PAD;
+  // spike: 窓でも全画面と同じく余白なし（利用者 11-27「ウィンドウ一杯に」）。VIEWER_PAD は比べるために残す
+  void fullscreen;
   return video ? VIEWER_PAD_FULLSCREEN_VIDEO : VIEWER_PAD_FULLSCREEN;
 }
 

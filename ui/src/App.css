@@ -1784,8 +1784,9 @@ input[type="range"]:focus-visible {
   /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
      App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
   /* 写真のまわりの空き（左右の送りボタン・上下の道具の分）。viewerZoomBox.ts の `VIEWER_PAD` と同じ値 */
-  --viewer-pad-x: 120px;
-  --viewer-pad-y: 80px;
+  /* spike: 窓でも余白なし（全画面と同じ）。元は 120px / 80px */
+  --viewer-pad-x: 0px;
+  --viewer-pad-y: 0px;
   --viewer-fit-w: calc(100vw - var(--viewer-pad-x) - var(--info-reserve));
   --viewer-fit-h: calc(100vh - var(--viewer-pad-y));
   position: fixed;
@@ -1929,7 +1930,7 @@ input[type="range"]:focus-visible {
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
 }
 /* 全画面の動画は、下の空き（字幕の帯の分）を引いた高さまで。引かないと下端が画面の外に出て操作バーが切れる */
-.viewer.fullscreen .viewer-video {
+.viewer .viewer-video {
   max-height: calc(100vh - var(--caption-h));
 }
 /* 再生できないとき（容器が合わない／OSにHEVCが無い）の逃げ道 */
