@@ -38,12 +38,15 @@ const TRAFFIC = "mac の信号のボタンは物理の左に居る（右→左�
 const SPINNER = "回転する印の欠け。向きの意味が無い";
 const SHIMMER = "読み込み中の光が流れる向き。飾りで、どちら向きでも読める";
 const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-quiet";
+const TIMELINE = "再生バー（.viewer-vbar は dir=ltr）の時間は左→右に流れる。右→左の言語でも裏返さない（標準のバーと同じ）";
 
 /** 物理のまま残すもの。鍵は「規則の頭（@media・@keyframes も含む）|宣言|値」 */
 const KEEP: Record<string, string> = {
   "html.mac-overlay:not(.mac-fullscreen) .topbar, html.mac-overlay:not(.mac-fullscreen) .select-bar|padding-left|84px": TRAFFIC,
   "html.mac-overlay:not(.mac-fullscreen) .select-bar ~ .topbar|padding-left|var(--sp-4)": TRAFFIC,
   "html.mac-overlay:not(.mac-fullscreen):not([dir=\"rtl\"]) .viewer-back, html.mac-overlay:not(.mac-fullscreen):not([dir=\"rtl\"]) .viewer-badges, html.mac-overlay:not(.mac-fullscreen)[dir=\"rtl\"] .viewer-tools|margin-left|68px": TRAFFIC,
+  '.viewer-vbar input[type="range"]|background|linear-gradient(to right, #fff var(--p, 0%), oklch(1 0 0 / 0.3) var(--p, 0%))':
+    TIMELINE,
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":

@@ -84,6 +84,7 @@ export const AMERICAS_ONLY: readonly string[] = [
  */
 export const AMERICAS_SWAPS: readonly (readonly [string, string])[] = [
   ["vídeo", "video"],
+  ["Vídeo", "Video"],
   ["Añadir", "Agregar"],
   ["Ratón", "Mouse"],
 ];
@@ -195,6 +196,9 @@ export const es419: Dict = {
         ["Espacio", "Pase de diapositivas. En un video, reproducir / pausar"],
         ["1 / 0", "1 alterna entre tamaño real 100 % y ajustar a la ventana; 0 siempre ajusta"],
         ["L", "Repetir videos (desactivado → todos los videos → este video)"],
+        ["Shift+← / →", "Video: retroceder o avanzar 5 segundos"],
+        ["↑ / ↓", "Video: subir o bajar el volumen"],
+        ["M", "Video: silenciar o activar el sonido"],
         ["F11", "Pantalla completa"],
         ["Esc", "Cerrar"],
       ],

@@ -55,6 +55,8 @@ import {
   wrapsOntoItself,
 } from "./videoPlayOn";
 import { effectiveRepeat, loadVideoRepeat, nextRepeat, saveVideoRepeat, type VideoRepeat } from "./videoRepeat";
+import { SEEK_KEY_SECONDS, VOLUME_STEP, afterVolumeKey, seekTarget } from "./videoControls";
+import { VideoBar } from "./VideoBar";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
@@ -2149,6 +2151,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // `<video>` は出さない（出すと実ファイルを取りに行ってしまう）
   const [videoInfo, setVideoInfo] = useState<VideoStatus | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // 自作の再生バー（VideoBar.tsx）が見る動画。ref だけでは描き直しが起きないので、付け替えのたびに state にも置く
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   /** 動画の音が出ない（消音・音量 0）。ビューアに小さな印を出す（dev #54） */
   const [videoSilent, setVideoSilent] = useState(() => isSilent(loadVideoVolume()));
   // 覚えた音量で始める（dev #54）。`<video>` は動画ごとに作り直され、そのたび既定の最大音量へ戻るので、
@@ -2156,6 +2160,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // React が毎回付け直し、つまみを動かした直後に古い値で上書きしてしまう（ゲート2）
   const attachVideo = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
+    setVideoEl(el);
     if (!el) return;
     const v = loadVideoVolume();
     el.volume = v.volume;
@@ -6518,6 +6523,41 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       }
       //ウィンドウの全画面（Windows のビューアの全画面と、動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
       //（頁の全画面は WebView が Esc を先に取って抜ける。2 回目で閉じる）
+      // 自作の再生バー（VideoBar.tsx）の部品に Tab で来ているときは、その部品のキーを効かせる: つまみの矢印
+      // （シーク・音量）と、ボタンの Space / Enter。ここで送りや再生の切り替えまで走らせると二重に効く
+      const inBar = (e.target as HTMLElement | null)?.closest?.(".viewer-vbar");
+      if (inBar) {
+        const range = (e.target as HTMLElement).tagName === "INPUT";
+        if (range && e.key.startsWith("Arrow")) return;
+        if (!range && (e.key === " " || e.key === "Enter")) return;
+      }
+      const video = viewerItem?.is_video ? videoRef.current : null;
+      // 動画のシーク（Shift+← →、5 秒）と音量（↑ ↓、5%）・ミュート（M）。利用者の選択（dev/plan.video-controls.md）。
+      // ← → だけはいつでも送り（説明書どおり）。右→左の画面でも、時間は左が戻る（再生バーは左→右で描く）
+      if (video && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        video.currentTime = seekTarget(
+          video.currentTime,
+          e.key === "ArrowLeft" ? -SEEK_KEY_SECONDS : SEEK_KEY_SECONDS,
+          video.duration,
+        );
+        return;
+      }
+      if (video && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        const next = afterVolumeKey(
+          { volume: video.volume, muted: video.muted },
+          e.key === "ArrowUp" ? VOLUME_STEP : -VOLUME_STEP,
+        );
+        video.volume = next.volume;
+        video.muted = next.muted;
+        return;
+      }
+      if (video && judging(e, "m")) {
+        video.muted = !video.muted;
+        if (!video.muted && video.volume === 0) video.volume = 0.5;
+        return;
+      }
       if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);
       else if (e.key === "Escape") requestCloseViewer();
       // 右→左の画面では左が「次」（direction.ts）
@@ -9880,6 +9920,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             !videoInfo ? (
               <div className="viewer-loading">{t.loading}</div>
             ) : playingVideo ? (
+              // 動画と自作の再生バーを1つの箱に。バーは動画の下端に重ねる（VideoBar.tsx。標準の `controls` は使わない）
+              <div className="viewer-video-box" onClick={(e) => e.stopPropagation()}>
               <video
                 // idをkeyにして、次の動画へ進んだときに要素を作り直す
                 // （src差し替えだけだと前の再生位置やバッファが残る）
@@ -9892,13 +9934,18 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 }}
                 className="viewer-video"
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
-                controls
                 autoPlay
                 // 1本を繰り返す（videoRepeat.ts）。繰り返している間は終わりが来ないので `onEnded` は走らない。
                 // **スライドショー中は繰り返さない**——送りは動画の終わり（`onEnded`）を待つので、その動画で止まり続ける
                 // （#372 の /code-review）
                 loop={videoRepeat === "one" && !playing}
-                onClick={(e) => e.stopPropagation()}
+                // 動画の本体を押すと再生／一時停止（標準のバーのときと同じ）。地へは届けない（閉じない）
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const v = e.currentTarget;
+                  if (v.paused) void v.play().catch(() => {});
+                  else v.pause();
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -9957,6 +10004,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
               />
+              <VideoBar
+                video={videoEl}
+                fullscreen={anyFullscreen}
+                onFullscreen={toggleFullscreen}
+                onReturnFocus={() => viewerRootRef.current?.focus({ preventScroll: true })}
+              />
+              </div>
             ) : (
               <div
                 className="viewer-fallback"
