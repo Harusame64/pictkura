@@ -117,6 +117,11 @@ test("the pads match App.css", () => {
   assert.equal(px(viewer, "--viewer-pad-y"), VIEWER_PAD.y);
   assert.equal(px(viewer, "--caption-h"), VIEWER_PAD_VIDEO.y);
   assert.match(block(".viewer .viewer-video"), /max-height:\s*calc\(100vh - var\(--caption-h\)\)/);
-  // 窓と全画面で余白を分けない（分けると、表示倍率の札と描いた大きさが片方でずれる）
-  assert.equal(css.indexOf("\n.viewer.fullscreen {"), -1);
+  // 窓と全画面で余白を分けない（分けると、表示倍率の札と描いた大きさが片方でずれる）。全画面だけに効く
+  // 規則（`.fullscreen` を含む選択子）が、余白や動画の高さを書き換えていないか、CSS 全体を見る
+  for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+    if (!/fullscreen/.test(m[1])) continue;
+    assert.doesNotMatch(m[2], /--viewer-pad-|--viewer-fit-|--caption-h/, m[1].trim());
+    if (/viewer-video|viewer-image/.test(m[1])) assert.doesNotMatch(m[2], /max-(height|width)/, m[1].trim());
+  }
 });
