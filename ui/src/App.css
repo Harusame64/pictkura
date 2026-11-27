@@ -4829,6 +4829,10 @@ html.viewer-only .app > .select-bar {
 .viewer.idle .viewer-video-box::after {
   opacity: 0;
 }
+/* 速度の一覧を開いている間はバーを消さないので、下の帯も残す（帯だけ消えると白い動画の上で読みにくい。#379 の win） */
+.viewer.idle .viewer-video-box:has(.vbar-menu)::after {
+  opacity: 1;
+}
 .vbar-time,
 .vbar-rate,
 .vbar-btn {
