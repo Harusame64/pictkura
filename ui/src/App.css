@@ -1784,8 +1784,11 @@ input[type="range"]:focus-visible {
   /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
      App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
   /* 写真のまわりの空き（左右の送りボタン・上下の道具の分）。viewerZoomBox.ts の `VIEWER_PAD` と同じ値 */
-  --viewer-pad-x: 120px;
-  --viewer-pad-y: 80px;
+  /* 写真のまわりは空けない（窓でも全画面でも。2026-11-27 利用者「全画面だけでなく、ウィンドウでも一杯に」）。
+   * 送りボタン・道具・下の帯は写真の上に重なり、マウスを止めると消える（下の idle の規則）。縦横比の差の帯は残る
+   * （拡大はしない）。viewerZoomBox.ts の `VIEWER_PAD` と同じ値。前は窓だけ 120px / 80px を空けていた */
+  --viewer-pad-x: 0px;
+  --viewer-pad-y: 0px;
   --viewer-fit-w: calc(100vw - var(--viewer-pad-x) - var(--info-reserve));
   --viewer-fit-h: calc(100vh - var(--viewer-pad-y));
   position: fixed;
@@ -1801,13 +1804,6 @@ input[type="range"]:focus-visible {
   /* 下端に敷く字幕の帯の高さ。フィルムストリップの位置決めと、動画の
      操作バーがその帯に潜らないための余白に使う */
   --caption-h: 44px;
-}
-/* 全画面では写真のまわりを空けず、画面いっぱいに収める（2026-11-27 利用者「上下左右の黒帯が気になる、出来るだけひろく」）。
- * 送りボタン・道具・下の帯は写真の上に重なり、マウスを止めると消える（下の idle の規則）。縦横比の差の帯は残る（拡大はしない）。
- * viewerZoomBox.ts の `VIEWER_PAD_FULLSCREEN` と同じ値 */
-.viewer.fullscreen {
-  --viewer-pad-x: 0px;
-  --viewer-pad-y: 0px;
 }
 /* 絵を載せる台（送りの動き）。`.viewer` と同じ面・同じ中央寄せにして、中の絵の置かれ方は
  * 台が無かったころと変えない。下敷き（`.viewer-thumb`）の絶対配置もこの台が基準になる。
@@ -1928,8 +1924,9 @@ input[type="range"]:focus-visible {
   background: #000;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
 }
-/* 全画面の動画は、下の空き（字幕の帯の分）を引いた高さまで。引かないと下端が画面の外に出て操作バーが切れる */
-.viewer.fullscreen .viewer-video {
+/* 動画は、下の空き（字幕の帯の分）を引いた高さまで。引かないと下端が画面の外に出て操作バーが切れる。
+   viewerZoomBox.ts の `VIEWER_PAD_VIDEO` と同じ */
+.viewer .viewer-video {
   max-height: calc(100vh - var(--caption-h));
 }
 /* 再生できないとき（容器が合わない／OSにHEVCが無い）の逃げ道 */
@@ -2037,7 +2034,10 @@ input[type="range"]:focus-visible {
   padding: var(--sp-3);
   color: oklch(0.93 0 0);
   font-size: var(--fs-md);
-  background: linear-gradient(transparent, oklch(0 0 0 / 0.6));
+  /* 余白なし（窓でも全画面でも）では、字が写真の上に乗る。明るい写真（黄緑の芝・白い空）でも読めるよう、下地を
+     濃くし、字に影を付ける（11-27 利用者と見た画面: 0.6 の薄い下地では日付と番号が消えた） */
+  background: linear-gradient(oklch(0 0 0 / 0), oklch(0 0 0 / 0.55) 35%, oklch(0 0 0 / 0.75));
+  text-shadow: 0 1px 2px oklch(0 0 0 / 0.9);
 }
 /* 前後に何があるかの帯（0.2 ②）。字幕のすぐ上、写真の上に浮かぶ暗い台に載せる（デザインレビュー: 写真に直に置いた
    半透明のコマに後ろの写真が透けて混ざり、青も橙も写真の色にくすんで見えた）。台の幅は App.tsx が席の数から決めて
@@ -2129,7 +2129,8 @@ input[type="range"]:focus-visible {
 
 .viewer-date,
 .viewer-pos {
-  color: var(--n-5);
+  /* 暗い下地の上の控えめな字。--n-5 の中ほどの灰では、写真の上に乗ったとき地と同じ明るさになった */
+  color: oklch(0.8 0 0);
   font-size: var(--fs-sm);
 }
 .viewer-tools {
@@ -2706,13 +2707,19 @@ input[type="range"]:focus-visible {
 .viewer-pair-side .viewer-tool:active:not(:disabled) {
   scale: none;
 }
+/* 使う回数の少ない道具（写し・保存・フォルダ・一覧へ・ごみ箱・キーの一覧）も、ほかの塊と同じ暗いカプセルに入れる。
+   余白なしでは明るい写真（白い空）に直に乗り、影だけでは線が薄くなった（11-27 利用者と見た画面） */
 .quiet-tools {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
+  padding-inline: var(--sp-1);
+  background: var(--viewer-control);
+  border-radius: var(--radius-full);
+  outline: 1px solid var(--viewer-control-ring);
+  outline-offset: -1px;
 }
-/* 使う回数の少ない道具（写し・保存・フォルダ・一覧へ・ごみ箱・キーの一覧）は地を持たない。写真の明るい所に
-   掛かっても見えるよう、絵に薄い影を付ける。触れると地が出る */
+/* 使う回数の少ない道具は、1 つずつは地を持たない（地は `.quiet-tools` のカプセルが持つ）。絵の影は残す。触れると地が出る */
 .viewer-tool.quiet {
   background: transparent;
   box-shadow: none;

@@ -6106,17 +6106,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         ? [servedNatural.w, servedNatural.h]
         : servedSize(viewerItem);
     if (w <= 0 || h <= 0) return 1;
-    // CSS の `--viewer-fit-w` / `--viewer-fit-h` と同じ枠。全画面では空きを取らない（`.viewer.fullscreen`）
+    // CSS の `--viewer-fit-w` / `--viewer-fit-h` と同じ枠。窓でも全画面でも空きを取らない（`VIEWER_PAD`）
     return fitScaleFor(
       w,
       h,
       infoReserve,
       windowSize.w,
       windowSize.h,
-      // 全画面の動画は字幕の帯の分だけ下を空ける（win の実機: 引かないと札が 96% の絵に「100%」と出た）
-      viewerPad(anyFullscreen, viewerItem.is_video),
+      // 動画は字幕の帯の分だけ下を空ける（win の実機: 引かないと札が 96% の絵に「100%」と出た）
+      viewerPad(viewerItem.is_video),
     );
-  }, [viewerItem, servedNatural, windowSize, infoReserve, anyFullscreen]);
+  }, [viewerItem, servedNatural, windowSize, infoReserve]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
   const isActualSize = Math.abs(displayScale - 1) < 0.005;
@@ -7113,7 +7113,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           isRtl(),
           window.innerWidth,
           window.innerHeight,
-          viewerPad(anyFullscreen, opened.is_video),
+          viewerPad(opened.is_video),
         );
         setTileZoom(
           to
@@ -7139,7 +7139,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       toggleMany,
       openIdOf,
       infoReserve,
-      anyFullscreen,
       handTransition,
     ],
   );
@@ -9797,8 +9796,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             "viewer" +
             (viewerIdle ? " idle" : "") +
             (pointerIdle ? " pointer-idle" : "") +
-            // 全画面では写真のまわりの空きを取らず、画面いっぱいに収める（2026-11-27 利用者「出来るだけひろくみたい」）
-            (anyFullscreen ? " fullscreen" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
           // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が
@@ -10551,8 +10548,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             </div>
           )}
           {/* mac: ビューアの間も窓をつかんで動かせる上の細い帯（窓の題の帯が無いので）。写真より上・道具より下に置く
-              ——DOM で写真の台の後、道具の前。押しても閉じない（地のクリックで閉じるのを止める） */}
-          {macOverlay && (
+              ——DOM で写真の台の後、道具の前。押しても閉じない（地のクリックで閉じるのを止める）。
+              **拡大している間は置かない**——窓でも余白なしにしたので、写真の上端 52px がこの帯の下に入り、つかんで
+              動かすと写真ではなく窓が動いた（#377 の /code-review）。収めて見ている間は、上端は窓の題の帯として働く */}
+          {macOverlay && zoom <= 1 && (
             <div
               className="viewer-drag-strip"
               data-tauri-drag-region="deep"
