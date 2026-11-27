@@ -55,7 +55,7 @@ import {
   wrapsOntoItself,
 } from "./videoPlayOn";
 import { effectiveRepeat, loadVideoRepeat, nextRepeat, saveVideoRepeat, type VideoRepeat } from "./videoRepeat";
-import { SEEK_KEY_SECONDS, VOLUME_STEP, afterVolumeKey, seekTarget } from "./videoControls";
+import { SEEK_KEY_SECONDS, VOLUME_STEP, afterMuteToggle, afterVolumeKey, seekTarget } from "./videoControls";
 import { VideoBar } from "./VideoBar";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
@@ -6572,8 +6572,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         return;
       }
       if (video && judging(e, "m")) {
-        video.muted = !video.muted;
-        if (!video.muted && video.volume === 0) video.volume = 0.5;
+        const next = afterMuteToggle({ volume: video.volume, muted: video.muted });
+        video.volume = next.volume;
+        video.muted = next.muted;
         return;
       }
       if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);

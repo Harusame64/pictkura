@@ -46,6 +46,16 @@ export function afterVolumeKey(state: { volume: number; muted: boolean }, delta:
   return { volume, muted: delta > 0 ? false : state.muted };
 }
 
+/**
+ * 消音の切り替え（M とバーのボタンで同じ決まり）。音量 0 も「無音」と数える——↓ で 0 まで下げると muted は
+ * false のまま残るので、muted だけを反転すると 1 回目の M が無音のまま何も変えなかった（1.1.2 前の /code-review）
+ */
+export function afterMuteToggle(state: { volume: number; muted: boolean }): { volume: number; muted: boolean } {
+  const silent = state.muted || state.volume === 0;
+  if (!silent) return { volume: state.volume, muted: true };
+  return { volume: state.volume === 0 ? 0.5 : state.volume, muted: false };
+}
+
 /** 速度の表示（1 は呼ぶ側が「標準」と出す）。数は言語の書き方で（`num`。独語なら 1,5×） */
 export function formatSpeed(rate: number, num: (n: number) => string = String): string {
   return `${num(rate)}×`;
